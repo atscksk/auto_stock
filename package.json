@@ -1,0 +1,18 @@
+{
+  "name": "auto-stock",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "ma20:signal": "node toss-etf-ma20-3pct-trader/signal.js",
+    "ma20:order": "node toss-etf-ma20-3pct-trader/order.js",
+    "ma20:dry-run:signal": "node -e \"process.env.MODE='DRY_RUN'; import('./toss-etf-ma20-3pct-trader/signal.js')\"",
+    "ma20:dry-run:order": "node -e \"process.env.MODE='DRY_RUN'; import('./toss-etf-ma20-3pct-trader/order.js')\""
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7"
+  }
+}
