@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { config } from './config.js';
-import { assertLiveOrderAllowed, decideOrderCandidate } from '../../shared/risk.js';
+import { assertLiveOrderAllowed, decideOrderCandidate } from '../../../shared/risk.js';
 import { getFirstAccountSeq, logger, paperBroker, tossClient } from './runtime.js';
 import { todayKstCompact } from './dates.js';
 import { readJsonLines } from './jsonl.js';

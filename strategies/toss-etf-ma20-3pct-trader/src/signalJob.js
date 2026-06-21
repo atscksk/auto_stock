@@ -1,7 +1,7 @@
 import { config } from './config.js';
 import { ma20Strategy } from './strategy.js';
-import { buildQuantityOrder } from '../../shared/orderBuilder.js';
-import { decideOrderCandidate } from '../../shared/risk.js';
+import { buildQuantityOrder } from '../../../shared/orderBuilder.js';
+import { decideOrderCandidate } from '../../../shared/risk.js';
 import { buildPortfolioSnapshot, getFirstAccountSeq, logger, tossClient } from './runtime.js';
 import { nextWeekdayKstCompact, todayKstCompact } from './dates.js';
 import { readJsonLines } from './jsonl.js';

@@ -3,7 +3,7 @@ import { calculateUnitAmount } from '../strategy/calculators.js';
 import { StrategyState } from '../strategy/stateMachine.js';
 import { readJson, writeJson } from './jsonStore.js';
 
-const DATA_DIR = path.resolve('infinite_buying/data');
+const DATA_DIR = path.resolve('strategies/infinite_buying/data');
 
 export function statePath(symbol) {
   return path.join(DATA_DIR, `${symbol}.state.json`);

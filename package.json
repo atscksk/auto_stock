@@ -7,16 +7,16 @@
     "node": ">=20"
   },
   "scripts": {
-    "ma20:signal": "node toss-etf-ma20-3pct-trader/signal.js",
-    "ma20:order": "node toss-etf-ma20-3pct-trader/order.js",
-    "ma20:dry-run:signal": "node -e \"process.env.MODE='DRY_RUN'; import('./toss-etf-ma20-3pct-trader/signal.js')\"",
-    "ma20:dry-run:order": "node -e \"process.env.MODE='DRY_RUN'; import('./toss-etf-ma20-3pct-trader/order.js')\"",
-    "infinite:plan": "node infinite_buying/src/cli/plan.js",
-    "infinite:trade": "node infinite_buying/src/cli/trade.js",
-    "infinite:reconcile": "node infinite_buying/src/cli/reconcile.js",
-    "infinite:auto": "node infinite_buying/src/cli/auto.js",
-    "infinite:backtest": "node infinite_buying/src/cli/backtest.js",
-    "test": "node --test infinite_buying/test/*.test.js"
+    "ma20:signal": "node strategies/toss-etf-ma20-3pct-trader/signal.js",
+    "ma20:order": "node strategies/toss-etf-ma20-3pct-trader/order.js",
+    "ma20:dry-run:signal": "node -e \"process.env.MODE='DRY_RUN'; import('./strategies/toss-etf-ma20-3pct-trader/signal.js')\"",
+    "ma20:dry-run:order": "node -e \"process.env.MODE='DRY_RUN'; import('./strategies/toss-etf-ma20-3pct-trader/order.js')\"",
+    "infinite:plan": "node strategies/infinite_buying/src/cli/plan.js",
+    "infinite:trade": "node strategies/infinite_buying/src/cli/trade.js",
+    "infinite:reconcile": "node strategies/infinite_buying/src/cli/reconcile.js",
+    "infinite:auto": "node strategies/infinite_buying/src/cli/auto.js",
+    "infinite:backtest": "node strategies/infinite_buying/src/cli/backtest.js",
+    "test": "node --test strategies/infinite_buying/test/*.test.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7"

@@ -69,7 +69,7 @@ npm run infinite:plan -- --symbol TQQQ --currentPrice 50 --previousClose 51 --av
 [위험 경고]
 ```
 
-주문계획은 `infinite_buying/logs/order-plans.jsonl`에도 기록됩니다.
+주문계획은 `strategies/infinite_buying/logs/order-plans.jsonl`에도 기록됩니다.
 
 ## Paper 주문 기록
 
@@ -82,8 +82,8 @@ npm run infinite:trade -- --symbol TQQQ --confirm --currentPrice 50 --previousCl
 저장 위치:
 
 ```text
-infinite_buying/data/orders.json
-infinite_buying/logs/orders.jsonl
+strategies/infinite_buying/data/orders.json
+strategies/infinite_buying/logs/orders.jsonl
 ```
 
 같은 `clientOrderId`는 중복 저장하지 않습니다.
@@ -99,7 +99,7 @@ npm run infinite:reconcile -- --symbol TQQQ --averagePrice 49 --holdingQuantity 
 상태 파일은 다음 위치에 저장됩니다.
 
 ```text
-infinite_buying/data/TQQQ.state.json
+strategies/infinite_buying/data/TQQQ.state.json
 ```
 
 ## 테스트
@@ -155,5 +155,5 @@ noTouchMinutesBeforeClose = 15
 
 ## 관련 문서
 
-- 전략 문서: `infinite_buying/docs/infinite_buying_document.md`
-- PRD: `infinite_buying/docs/infinite_buying_prd.md`
+- 전략 문서: `strategies/infinite_buying/docs/infinite_buying_document.md`
+- PRD: `strategies/infinite_buying/docs/infinite_buying_prd.md`

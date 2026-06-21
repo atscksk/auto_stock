@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 
 export const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const workspaceRoot = path.resolve(projectRoot, '..');
+export const workspaceRoot = path.resolve(projectRoot, '..', '..');
 
 dotenv.config({ path: path.join(workspaceRoot, '.env') });
 dotenv.config({ path: path.join(projectRoot, '.env'), override: true });

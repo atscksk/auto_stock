@@ -1,4 +1,4 @@
-import { toNumber } from '../../shared/utils.js';
+import { toNumber } from '../../../shared/utils.js';
 
 export function ma20Strategy(candles, options = {}) {
   const maWindow = options.maWindow ?? 20;

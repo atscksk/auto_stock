@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { appendJsonLine, readJson, writeJson } from './jsonStore.js';
 
-const DATA_DIR = path.resolve('infinite_buying/data');
-const LOG_DIR = path.resolve('infinite_buying/logs');
+const DATA_DIR = path.resolve('strategies/infinite_buying/data');
+const LOG_DIR = path.resolve('strategies/infinite_buying/logs');
 
 export function orderRecordPath() {
   return path.join(DATA_DIR, 'orders.json');

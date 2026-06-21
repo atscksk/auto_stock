@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { config, projectRoot } from './config.js';
-import { createJsonlLogger } from '../../shared/logger.js';
-import { createPaperBroker } from '../../shared/paperBroker.js';
-import { createTossClient } from '../../shared/tossClient.js';
+import { createJsonlLogger } from '../../../shared/logger.js';
+import { createPaperBroker } from '../../../shared/paperBroker.js';
+import { createTossClient } from '../../../shared/tossClient.js';
 
 export const logger = createJsonlLogger({ logDir: path.join(projectRoot, 'logs') });
 export const tossClient = createTossClient({

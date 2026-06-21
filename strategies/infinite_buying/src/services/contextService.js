@@ -1,6 +1,6 @@
 import { loadState } from '../storage/stateStore.js';
 
-export function buildCliContext(symbol, args = {}) {
+export function buildRuntimeContext(symbol, args = {}) {
   const state = loadState(symbol);
   const currentPrice = args.currentPrice || process.env.IB_CURRENT_PRICE || state.averagePrice || '50.00';
   const previousClose = args.previousClose || process.env.IB_PREVIOUS_CLOSE || currentPrice;
