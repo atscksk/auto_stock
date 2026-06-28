@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { config } from './config.js';
+import { notifySafely } from '../../../shared/notificationService.js';
 import { assertLiveOrderAllowed, decideOrderCandidate } from '../../../shared/risk.js';
 import { getFirstAccountSeq, logger, paperBroker, tossClient } from './runtime.js';
 import { todayKstCompact } from './dates.js';
@@ -11,11 +12,27 @@ export async function runOrderJob() {
   const plan = findDuePlan();
   if (!plan) {
     console.log('No due order plan.');
+    await notifySafely({
+      type: 'ORDER_NO_DUE_PLAN',
+      title: 'MA20 no due order plan',
+      severity: 'INFO',
+      strategy: 'ma20',
+      symbol: config.symbol,
+      message: 'No due order plan.'
+    });
     return;
   }
 
   if (hasDuplicateClientOrderId(plan.clientOrderId)) {
     console.log(`No order: duplicate clientOrderId ${plan.clientOrderId}`);
+    await notifySafely({
+      type: 'ORDER_DUPLICATE_SKIPPED',
+      title: 'MA20 duplicate order skipped',
+      severity: 'WARN',
+      strategy: 'ma20',
+      symbol: plan.symbol,
+      message: `Duplicate clientOrderId ${plan.clientOrderId}`
+    });
     return;
   }
 
@@ -53,6 +70,14 @@ export async function runOrderJob() {
 
   if (!candidate.shouldOrder) {
     console.log(`No order: ${candidate.reason}`);
+    await notifySafely({
+      type: 'ORDER_BLOCKED',
+      title: 'MA20 order blocked by risk guard',
+      severity: 'WARN',
+      strategy: 'ma20',
+      symbol: plan.symbol,
+      message: candidate.reason
+    });
     return;
   }
 
@@ -76,6 +101,18 @@ export async function runOrderJob() {
       reason: `Executed planned order from ${plan.planDate}: ${plan.reason}`
     });
     console.log(`DRY_RUN planned paper order saved: ${plan.clientOrderId}`);
+    await notifySafely({
+      type: 'PAPER_ORDER_SAVED',
+      title: 'MA20 paper order saved',
+      severity: 'INFO',
+      strategy: 'ma20',
+      symbol: plan.symbol,
+      message: `${plan.side} ${quantity} ${plan.symbol}`,
+      details: {
+        clientOrderId: plan.clientOrderId,
+        price: plan.price
+      }
+    });
     return;
   }
 
@@ -96,6 +133,18 @@ export async function runOrderJob() {
     result
   });
   console.log(`LIVE planned order completed: ${plan.clientOrderId}`);
+  await notifySafely({
+    type: 'LIVE_ORDER_COMPLETED',
+    title: 'MA20 live order completed',
+    severity: 'INFO',
+    strategy: 'ma20',
+    symbol: plan.symbol,
+    message: `${plan.side} ${quantity} ${plan.symbol}`,
+    details: {
+      clientOrderId: plan.clientOrderId,
+      price: plan.price
+    }
+  });
 }
 
 function findDuePlan() {

@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { config, projectRoot } from './config.js';
 import { createJsonlLogger } from '../../../shared/logger.js';
+import { notifySafely } from '../../../shared/notificationService.js';
 import { createPaperBroker } from '../../../shared/paperBroker.js';
 import { createTossClient } from '../../../shared/tossClient.js';
 
@@ -49,6 +50,13 @@ export function runJob(fn, stage) {
   fn().catch((error) => {
     console.error(`Error: ${error.message}`);
     logger.logError(error, { stage });
-    process.exit(1);
+    notifySafely({
+      type: 'JOB_FAILED',
+      title: `MA20 ${stage} job failed`,
+      severity: 'ERROR',
+      strategy: config.strategyId,
+      symbol: config.symbol,
+      message: error.message
+    }).finally(() => process.exit(1));
   });
 }

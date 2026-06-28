@@ -1,6 +1,7 @@
 import { config } from './config.js';
 import { ma20Strategy } from './strategy.js';
 import { buildQuantityOrder } from '../../../shared/orderBuilder.js';
+import { notifySafely } from '../../../shared/notificationService.js';
 import { decideOrderCandidate } from '../../../shared/risk.js';
 import { buildPortfolioSnapshot, getFirstAccountSeq, logger, tossClient } from './runtime.js';
 import { nextWeekdayKstCompact, todayKstCompact } from './dates.js';
@@ -63,6 +64,15 @@ export async function runSignalJob() {
 
   if (!candidate.shouldOrder) {
     console.log(`No order plan: ${candidate.reason}`);
+    await notifySafely({
+      type: 'SIGNAL_NO_ORDER',
+      title: 'MA20 signal produced no order plan',
+      severity: 'INFO',
+      strategy: 'ma20',
+      symbol: config.symbol,
+      message: candidate.reason,
+      details: { signal: signal.signal, close: signal.close, reason: signal.reason }
+    });
     return;
   }
 
@@ -77,6 +87,14 @@ export async function runSignalJob() {
 
   if (hasExistingPlan(order.clientOrderId)) {
     console.log(`No order plan: duplicate clientOrderId ${order.clientOrderId}`);
+    await notifySafely({
+      type: 'SIGNAL_DUPLICATE_PLAN',
+      title: 'MA20 duplicate order plan skipped',
+      severity: 'WARN',
+      strategy: 'ma20',
+      symbol: config.symbol,
+      message: `Duplicate clientOrderId ${order.clientOrderId}`
+    });
     return;
   }
 
@@ -97,6 +115,19 @@ export async function runSignalJob() {
 
   logger.logOrderPlan(plan);
   console.log(`Order plan saved: ${order.clientOrderId}`);
+  await notifySafely({
+    type: 'ORDER_PLAN_SAVED',
+    title: 'MA20 order plan saved',
+    severity: 'INFO',
+    strategy: 'ma20',
+    symbol: config.symbol,
+    message: `${candidate.side} ${order.quantity} ${config.symbol}`,
+    details: {
+      clientOrderId: order.clientOrderId,
+      price: order.price,
+      reason: signal.reason
+    }
+  });
 }
 
 function hasExistingPlan(clientOrderId) {

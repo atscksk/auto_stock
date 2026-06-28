@@ -74,5 +74,6 @@ export const config = {
   buyThreshold: positiveNumberEnv('BUY_THRESHOLD', 1.03),
   sellThreshold: positiveNumberEnv('SELL_THRESHOLD', 0.97),
   dryRunBuyingPowerKrw: optionalPositiveNumberEnv('DRY_RUN_BUYING_POWER_KRW'),
-  logLevel: process.env.LOG_LEVEL || 'info'
+  logLevel: process.env.LOG_LEVEL || 'info',
+  strategyId: 'ma20'
 };
