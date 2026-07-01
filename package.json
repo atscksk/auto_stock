@@ -11,6 +11,8 @@
     "ma20:order": "node strategies/toss-etf-ma20-3pct-trader/order.js",
     "ma20:dry-run:signal": "node -e \"process.env.MODE='DRY_RUN'; import('./strategies/toss-etf-ma20-3pct-trader/signal.js')\"",
     "ma20:dry-run:order": "node -e \"process.env.MODE='DRY_RUN'; import('./strategies/toss-etf-ma20-3pct-trader/order.js')\"",
+    "ma20:backtest": "node strategies/toss-etf-ma20-3pct-trader/backtest.js",
+    "data:candles": "node scripts/exportCandles.js",
     "health": "node scripts/health.js",
     "infinite:plan": "node strategies/infinite_buying/src/cli/plan.js",
     "infinite:trade": "node strategies/infinite_buying/src/cli/trade.js",

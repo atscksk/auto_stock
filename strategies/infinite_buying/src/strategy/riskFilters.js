@@ -40,7 +40,7 @@ export function evaluateRiskFilters(input) {
     riskLevel = 'HIGH';
   }
 
-  if (input.dailyCandles?.length) {
+  if (input.dailyCandles?.length && input.riskSettings.enableTrendFilter !== false) {
     const downDays = countDownDays(input.dailyCandles, input.riskSettings.consecutiveDownDaysLookback);
     if (downDays >= input.riskSettings.consecutiveDownDaysLimit) {
       buySizeMultiplier *= 0.5;

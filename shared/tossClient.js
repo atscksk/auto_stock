@@ -83,11 +83,19 @@ export function createTossClient({
     return request('/api/v1/accounts');
   }
 
-  async function getDailyCandles(symbol, count = 40) {
+  async function getCandles({ symbol, interval = '1d', count = 100, before, adjusted = true }) {
     const result = await request('/api/v1/candles', {
-      query: { symbol, interval: '1d', count, adjusted: true }
+      query: { symbol, interval, count, before, adjusted }
     });
-    return result?.candles || [];
+    return {
+      candles: result?.candles || [],
+      nextBefore: result?.nextBefore || null
+    };
+  }
+
+  async function getDailyCandles(symbol, count = 40) {
+    const result = await getCandles({ symbol, interval: '1d', count, adjusted: true });
+    return result.candles;
   }
 
   async function getHoldings(accountSeq, symbol) {
@@ -134,6 +142,7 @@ export function createTossClient({
     getAccessToken,
     request,
     getAccounts,
+    getCandles,
     getDailyCandles,
     getHoldings,
     createOrder,

@@ -7,6 +7,8 @@ export const riskConfig = {
   maxLossStop: -60,
   bigBuyMaxCashRatio: 0.2,
   bigBuyMaxCapitalRatio: 0.3,
+  sellRejectLimit: 5,
+  minAverageImprovementPercent: 0,
   consecutiveDownDaysLookback: 5,
   consecutiveDownDaysLimit: 4,
   brokerAveragePriceTolerancePercent: 0.05

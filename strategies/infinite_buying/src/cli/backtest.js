@@ -1,1 +1,6 @@
-console.log('Backtest scaffold is ready. Historical LOC simulation will be implemented after live data adapters are verified.');
+import { parseArgs } from './args.js';
+import { printInfiniteBuyingBacktest, runInfiniteBuyingBacktest } from '../backtest/backtestEngine.js';
+
+const args = parseArgs();
+const result = runInfiniteBuyingBacktest(args);
+printInfiniteBuyingBacktest(result);

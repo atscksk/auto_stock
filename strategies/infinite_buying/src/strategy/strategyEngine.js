@@ -43,8 +43,9 @@ export function buildStrategyInput({
     openOrders: orders.openOrders || [],
     filledOrders: orders.filledOrders || [],
     strategyState: state,
-    riskSettings: appConfig.risk,
+    riskSettings: market.riskSettings || appConfig.risk,
     enableCrashFilter: appConfig.strategy.enableCrashFilter,
+    enableTrendFilter: market.enableTrendFilter ?? appConfig.strategy.enableTrendFilter,
     marketCalendar,
     schedule: appConfig.schedule,
     now
