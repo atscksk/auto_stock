@@ -20,6 +20,7 @@
     "infinite:health": "node strategies/infinite_buying/src/cli/health.js",
     "infinite:auto": "node strategies/infinite_buying/src/cli/auto.js",
     "infinite:backtest": "node strategies/infinite_buying/src/cli/backtest.js",
+    "infinite:compare": "node strategies/infinite_buying/src/cli/compareBacktests.js",
     "test": "node --test strategies/infinite_buying/test/*.test.js"
   },
   "dependencies": {

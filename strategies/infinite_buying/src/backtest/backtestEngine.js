@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   calculateBacktestMetrics,
   filterCandlesByDate,
@@ -16,6 +18,8 @@ export function runInfiniteBuyingBacktest(options) {
   const initialCash = Number(options.cash || options.strategyCapital || 10000);
   const strategyCapital = Number(options.strategyCapital || initialCash);
   const unitAmount = calculateUnitAmount(strategyCapital, 40);
+  const feeRate = parsePercentRate(options.feeRatePercent);
+  const taxRate = parsePercentRate(options.taxRatePercent, '--taxRatePercent');
 
   let cash = initialCash;
   let quantity = 0;
@@ -28,6 +32,9 @@ export function runInfiniteBuyingBacktest(options) {
   const trades = [];
   const equityCurve = [];
   const dailyPlans = [];
+  const stateTransitions = [];
+  const completedCycles = [];
+  let activeCycle = null;
   const diagnostics = createDiagnostics({ candles: candles.length });
 
   for (let index = 1; index < candles.length; index += 1) {
@@ -35,6 +42,7 @@ export function runInfiniteBuyingBacktest(options) {
     const previous = candles[index - 1];
     const previousPrevious = candles[index - 2] || previous;
     const cycleId = `${symbol}-BT-${String(cycleIndex).padStart(3, '0')}`;
+    const stateAtStart = stateName;
     const context = {
       symbol,
       state: {
@@ -80,6 +88,7 @@ export function runInfiniteBuyingBacktest(options) {
     recordPlanDiagnostics(diagnostics, plan);
     dailyPlans.push({
       date: candle.date,
+      stateAtStart,
       state: plan.nextState,
       buyOrders: plan.buyOrders.length,
       sellOrders: plan.sellOrders.length,
@@ -101,20 +110,45 @@ export function runInfiniteBuyingBacktest(options) {
       const fillQuantity = Math.min(quantity, Number(order.quantity));
       const fillPrice = Number(order.price);
       const amount = fillQuantity * fillPrice;
-      const realizedPnl = amount - fillQuantity * averagePrice;
-      cash += amount;
+      const fee = amount * feeRate;
+      const tax = amount * taxRate;
+      const netAmount = amount - fee - tax;
+      const realizedPnl = netAmount - fillQuantity * averagePrice;
+      cash += netAmount;
       quantity -= fillQuantity;
+      diagnostics.totalFees += fee;
+      diagnostics.totalTaxes += tax;
       trades.push({
         date: candle.date,
         side: 'SELL',
         quantity: fillQuantity,
         price: roundMoney(fillPrice),
         amount: roundMoney(amount),
+        fee: roundMoney(fee),
+        tax: roundMoney(tax),
         realizedPnl: roundMoney(realizedPnl),
         reason: order.reason
       });
+      recordCycleSell(activeCycle, {
+        quantity: fillQuantity,
+        amount,
+        fee,
+        tax,
+        realizedPnl
+      });
 
       if (quantity === 0) {
+        if (activeCycle) {
+          activeCycle.endDate = candle.date;
+          activeCycle.status = 'CLOSED';
+          completedCycles.push(finalizeCycle(activeCycle, {
+            lastDate: candle.date,
+            lastClose: candle.close,
+            quantity,
+            averagePrice
+          }));
+          activeCycle = null;
+        }
         averagePrice = 0;
         realizedBuyAmountInCycle = 0;
         currentRound = 0;
@@ -132,7 +166,7 @@ export function runInfiniteBuyingBacktest(options) {
       }
       const fillPrice = Number(candle.close);
       const requestedQuantity = Number(order.quantity);
-      const affordableQuantity = Math.floor(cash / fillPrice);
+      const affordableQuantity = Math.floor(cash / (fillPrice * (1 + feeRate)));
       const fillQuantity = Math.min(requestedQuantity, affordableQuantity);
       if (fillQuantity <= 0) {
         diagnostics.unfilledBuyOrders += 1;
@@ -141,11 +175,17 @@ export function runInfiniteBuyingBacktest(options) {
       diagnostics.filledBuyOrders += 1;
 
       const amount = fillQuantity * fillPrice;
+      const fee = amount * feeRate;
+      const costAmount = amount + fee;
+      if (!activeCycle) {
+        activeCycle = createCycleSummary({ cycleId, startDate: candle.date });
+      }
       averagePrice = quantity > 0
-        ? ((averagePrice * quantity) + amount) / (quantity + fillQuantity)
-        : fillPrice;
+        ? ((averagePrice * quantity) + costAmount) / (quantity + fillQuantity)
+        : costAmount / fillQuantity;
       quantity += fillQuantity;
-      cash -= amount;
+      cash -= costAmount;
+      diagnostics.totalFees += fee;
       realizedBuyAmountInCycle += amount;
       currentRound = Number((realizedBuyAmountInCycle / Number(unitAmount)).toFixed(4));
       stateName = plan.nextState;
@@ -156,7 +196,14 @@ export function runInfiniteBuyingBacktest(options) {
         quantity: fillQuantity,
         price: roundMoney(fillPrice),
         amount: roundMoney(amount),
+        fee: roundMoney(fee),
+        tax: 0,
         reason: order.reason
+      });
+      recordCycleBuy(activeCycle, {
+        quantity: fillQuantity,
+        amount,
+        fee
       });
     }
 
@@ -167,12 +214,36 @@ export function runInfiniteBuyingBacktest(options) {
       stateName = plan.nextState;
     }
 
+    stateTransitions.push({
+      date: candle.date,
+      symbol,
+      cycleId,
+      fromState: stateAtStart,
+      plannedState: plan.nextState,
+      endState: stateName,
+      changed: stateAtStart !== stateName,
+      buyRejected: Boolean(plan.buyRejected),
+      sellRejected: hasRejectSide(plan, 'SELL'),
+      buyOrders: plan.buyOrders.length,
+      sellOrders: plan.sellOrders.length,
+      rejectReasons: (plan.rejectReasons || []).map((reason) => reason.code).join('|')
+    });
+
     equityCurve.push({
       date: candle.date,
       equity: cash + quantity * candle.close,
       deployed: quantity * candle.close
     });
   }
+
+  const cycleSummaries = activeCycle
+    ? [...completedCycles, finalizeCycle(activeCycle, {
+      lastDate: candles.at(-1).date,
+      lastClose: candles.at(-1).close,
+      quantity,
+      averagePrice
+    })]
+    : completedCycles;
 
   const metrics = calculateBacktestMetrics({
     initialEquity: initialCash,
@@ -187,12 +258,16 @@ export function runInfiniteBuyingBacktest(options) {
     from: options.from,
     to: options.to,
     options: {
-      disableTrendFilter: Boolean(options.disableTrendFilter)
+      disableTrendFilter: Boolean(options.disableTrendFilter),
+      feeRatePercent: roundPercent(feeRate * 100),
+      taxRatePercent: roundPercent(taxRate * 100)
     },
     metrics,
     trades,
     equityCurve,
     dailyPlans,
+    stateTransitions,
+    cycleSummaries,
     diagnostics,
     finalState: {
       cash: roundMoney(cash),
@@ -206,10 +281,23 @@ export function runInfiniteBuyingBacktest(options) {
   };
 }
 
+export function writeStateTransitions(filePath, stateTransitions = []) {
+  if (!filePath) return;
+  const resolvedPath = path.resolve(filePath);
+  fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
+
+  const extension = path.extname(resolvedPath).toLowerCase();
+  const content = extension === '.csv'
+    ? formatStateTransitionsCsv(stateTransitions)
+    : formatStateTransitionsJsonl(stateTransitions);
+  fs.writeFileSync(resolvedPath, content, 'utf8');
+}
+
 export function printInfiniteBuyingBacktest(result) {
   printBacktestReport(result);
   console.log(`[계획 수] ${result.dailyPlans.length}`);
   printDiagnostics(result);
+  printCycleSummaries(result.cycleSummaries);
 }
 
 function shouldFillBuy(order, candle) {
@@ -225,6 +313,119 @@ function roundMoney(value) {
   return Number(Number(value).toFixed(2));
 }
 
+function roundPercent(value) {
+  return Number(Number(value).toFixed(6));
+}
+
+function parsePercentRate(value, optionName = '--feeRatePercent') {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number) || number < 0) {
+    throw new Error(`${optionName} must be a non-negative number.`);
+  }
+  return number / 100;
+}
+
+function formatStateTransitionsJsonl(stateTransitions) {
+  return `${stateTransitions.map((item) => JSON.stringify(item)).join('\n')}\n`;
+}
+
+function formatStateTransitionsCsv(stateTransitions) {
+  const headers = [
+    'date',
+    'symbol',
+    'cycleId',
+    'fromState',
+    'plannedState',
+    'endState',
+    'changed',
+    'buyRejected',
+    'sellRejected',
+    'buyOrders',
+    'sellOrders',
+    'rejectReasons'
+  ];
+  const rows = stateTransitions.map((item) => headers.map((header) => csvValue(item[header])).join(','));
+  return `${[headers.join(','), ...rows].join('\n')}\n`;
+}
+
+function csvValue(value) {
+  if (value == null) return '';
+  const text = String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function createCycleSummary({ cycleId, startDate }) {
+  return {
+    cycleId,
+    startDate,
+    endDate: null,
+    status: 'OPEN',
+    buyCount: 0,
+    sellCount: 0,
+    buyQuantity: 0,
+    sellQuantity: 0,
+    buyAmount: 0,
+    sellAmount: 0,
+    fees: 0,
+    taxes: 0,
+    realizedPnl: 0
+  };
+}
+
+function recordCycleBuy(cycle, { quantity, amount, fee }) {
+  if (!cycle) return;
+  cycle.buyCount += 1;
+  cycle.buyQuantity += quantity;
+  cycle.buyAmount += amount;
+  cycle.fees += fee;
+}
+
+function recordCycleSell(cycle, { quantity, amount, fee, tax, realizedPnl }) {
+  if (!cycle) return;
+  cycle.sellCount += 1;
+  cycle.sellQuantity += quantity;
+  cycle.sellAmount += amount;
+  cycle.fees += fee;
+  cycle.taxes += tax;
+  cycle.realizedPnl += realizedPnl;
+}
+
+function finalizeCycle(cycle, { lastDate, lastClose, quantity, averagePrice }) {
+  const finalQuantity = Number(quantity || 0);
+  const finalAveragePrice = Number(averagePrice || 0);
+  const unrealizedPnl = finalQuantity > 0
+    ? (Number(lastClose) - finalAveragePrice) * finalQuantity
+    : 0;
+
+  return {
+    ...cycle,
+    endDate: cycle.endDate || lastDate,
+    status: finalQuantity > 0 ? 'OPEN' : 'CLOSED',
+    buyAmount: roundMoney(cycle.buyAmount),
+    sellAmount: roundMoney(cycle.sellAmount),
+    fees: roundMoney(cycle.fees),
+    taxes: roundMoney(cycle.taxes),
+    realizedPnl: roundMoney(cycle.realizedPnl),
+    finalQuantity,
+    finalAveragePrice: roundMoney(finalAveragePrice),
+    unrealizedPnl: roundMoney(unrealizedPnl),
+    totalPnl: roundMoney(cycle.realizedPnl + unrealizedPnl)
+  };
+}
+
+function printCycleSummaries(cycleSummaries = []) {
+  if (!cycleSummaries.length) return;
+
+  console.log('[사이클별 손익]');
+  for (const cycle of cycleSummaries) {
+    const period = cycle.status === 'OPEN'
+      ? `${cycle.startDate} ~ 진행중`
+      : `${cycle.startDate} ~ ${cycle.endDate}`;
+    const status = cycle.status === 'OPEN' ? '진행중' : '종료';
+    console.log(`- ${cycle.cycleId} ${period} 상태=${status} 매수=${cycle.buyAmount} 매도=${cycle.sellAmount} 수수료=${cycle.fees} 세금=${cycle.taxes} 실현손익=${cycle.realizedPnl} 평가손익=${cycle.unrealizedPnl} 총손익=${cycle.totalPnl}`);
+  }
+}
+
 function createDiagnostics({ candles }) {
   return {
     candles,
@@ -234,11 +435,16 @@ function createDiagnostics({ candles }) {
     filledSellOrders: 0,
     unfilledBuyOrders: 0,
     unfilledSellOrders: 0,
+    totalFees: 0,
+    totalTaxes: 0,
     daysWithWarnings: 0,
     stateCounts: {},
     warningCounts: {},
     rejectReasonCounts: {},
+    buyRejectReasonCount: 0,
     buyRejectedDays: 0,
+    sellRejectReasonCount: 0,
+    sellRejectedDays: 0,
     sellMaintainedOnBuyRejectDays: 0
   };
 }
@@ -246,6 +452,7 @@ function createDiagnostics({ candles }) {
 function recordPlanDiagnostics(diagnostics, plan) {
   diagnostics.stateCounts[plan.nextState] = (diagnostics.stateCounts[plan.nextState] || 0) + 1;
   if (plan.buyRejected) diagnostics.buyRejectedDays += 1;
+  if (hasRejectSide(plan, 'SELL')) diagnostics.sellRejectedDays += 1;
   if (plan.sellMaintainedOnBuyReject) diagnostics.sellMaintainedOnBuyRejectDays += 1;
 
   if (plan.warnings?.length) diagnostics.daysWithWarnings += 1;
@@ -254,7 +461,13 @@ function recordPlanDiagnostics(diagnostics, plan) {
   }
   for (const reason of plan.rejectReasons || []) {
     diagnostics.rejectReasonCounts[reason.code] = (diagnostics.rejectReasonCounts[reason.code] || 0) + 1;
+    if (reason.side === 'BUY') diagnostics.buyRejectReasonCount += 1;
+    if (reason.side === 'SELL') diagnostics.sellRejectReasonCount += 1;
   }
+}
+
+function hasRejectSide(plan, side) {
+  return (plan.rejectReasons || []).some((reason) => reason.side === side);
 }
 
 function printDiagnostics({ diagnostics, options }) {
@@ -264,8 +477,13 @@ function printDiagnostics({ diagnostics, options }) {
   console.log(`[계획 주문] 매수=${diagnostics.plannedBuyOrders}, 매도=${diagnostics.plannedSellOrders}`);
   console.log(`[체결 주문] 매수=${diagnostics.filledBuyOrders}, 매도=${diagnostics.filledSellOrders}`);
   console.log(`[미체결 주문] 매수=${diagnostics.unfilledBuyOrders}, 매도=${diagnostics.unfilledSellOrders}`);
+  console.log(`[수수료 합계] ${roundMoney(diagnostics.totalFees)}`);
+  console.log(`[세금 합계] ${roundMoney(diagnostics.totalTaxes)}`);
   console.log(`[경고 발생일] ${diagnostics.daysWithWarnings}`);
   console.log(`[매수거부 발생일] ${diagnostics.buyRejectedDays}`);
+  console.log(`[매수거부 발생 횟수] ${diagnostics.buyRejectReasonCount}`);
+  console.log(`[매도거부 발생일] ${diagnostics.sellRejectedDays}`);
+  console.log(`[매도거부 발생 횟수] ${diagnostics.sellRejectReasonCount}`);
   console.log(`[매수거부 중 매도 유지일] ${diagnostics.sellMaintainedOnBuyRejectDays}`);
 
   const stateSummary = Object.entries(diagnostics.stateCounts)
