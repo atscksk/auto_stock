@@ -1,9 +1,9 @@
 import {
   calculateAverageLossPercent,
   calculateDayDropPercent,
-  countDownDays,
-  movingAverage
+  countDownDays
 } from './calculators.js';
+import { evaluateTrendMa200 } from './trendFilter.js';
 
 export function evaluateRiskFilters(input) {
   const warnings = [];
@@ -40,20 +40,25 @@ export function evaluateRiskFilters(input) {
     riskLevel = 'HIGH';
   }
 
-  if (input.dailyCandles?.length && input.riskSettings.enableTrendFilter !== false) {
-    const downDays = countDownDays(input.dailyCandles, input.riskSettings.consecutiveDownDaysLookback);
-    if (downDays >= input.riskSettings.consecutiveDownDaysLimit) {
-      buySizeMultiplier *= 0.5;
-      warnings.push(`Recent down days filter active: ${downDays}/${input.riskSettings.consecutiveDownDaysLookback}.`);
+  if ((input.dailyCandles?.length || input.trendCandles?.length) && input.riskSettings.enableTrendFilter !== false) {
+    if (input.dailyCandles?.length) {
+      const downDays = countDownDays(input.dailyCandles, input.riskSettings.consecutiveDownDaysLookback);
+      if (downDays >= input.riskSettings.consecutiveDownDaysLimit) {
+        buySizeMultiplier *= 0.5;
+        warnings.push(`Recent down days filter active: ${downDays}/${input.riskSettings.consecutiveDownDaysLookback}.`);
+      }
     }
 
-    const ma200 = movingAverage(input.dailyCandles, 200);
-    if (ma200 == null) {
-      warnings.push('MA200 unavailable; new cycle buying is blocked when there is no existing position.');
+    const trend = evaluateTrendMa200(input);
+    if (trend.fallbackToTarget) {
+      warnings.push(`Reference trend data for ${input.trendSymbol} is unavailable; falling back to ${input.symbol} MA200.`);
+    }
+    if (!trend.available) {
+      warnings.push(`${trend.symbol} MA200 unavailable; new cycle buying is blocked when there is no existing position.`);
       if (Number(input.holdingQuantity || 0) === 0) blocks.push('MA200_UNAVAILABLE_NEW_CYCLE');
-    } else if (Number(input.currentPrice) < ma200) {
+    } else if (trend.price < trend.ma200) {
       buySizeMultiplier *= Number(input.holdingQuantity || 0) > 0 ? 0.5 : 0;
-      warnings.push(`Trend filter active: current price is below MA200 (${ma200.toFixed(2)}).`);
+      warnings.push(`Trend filter active: ${trend.symbol} price is below MA200 (${trend.ma200.toFixed(2)}).`);
       if (Number(input.holdingQuantity || 0) === 0) blocks.push('TREND_FILTER_NEW_CYCLE');
     }
   }

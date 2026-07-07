@@ -12,6 +12,9 @@ import { StrategyState } from '../strategy/stateMachine.js';
 
 export function runInfiniteBuyingBacktest(options) {
   const candles = filterCandlesByDate(loadDailyCandlesFromCsv(options.file), options);
+  const trendCandles = options.trendFile
+    ? filterCandlesByDate(loadDailyCandlesFromCsv(options.trendFile), options)
+    : [];
   if (candles.length < 2) throw new Error('Backtest requires at least two candles.');
 
   const symbol = options.symbol || 'TQQQ';
@@ -26,6 +29,7 @@ export function runInfiniteBuyingBacktest(options) {
   let averagePrice = 0;
   let realizedBuyAmountInCycle = 0;
   let currentRound = 0;
+  let bigBuyAmountInCycle = 0;
   let cycleIndex = 1;
   let stateName = StrategyState.READY;
   let sellRejectCount = 0;
@@ -43,6 +47,7 @@ export function runInfiniteBuyingBacktest(options) {
     const previousPrevious = candles[index - 2] || previous;
     const cycleId = `${symbol}-BT-${String(cycleIndex).padStart(3, '0')}`;
     const stateAtStart = stateName;
+    let reverseExitFilled = false;
     const context = {
       symbol,
       state: {
@@ -55,6 +60,7 @@ export function runInfiniteBuyingBacktest(options) {
         unitAmount,
         strategyCapital: String(strategyCapital),
         realizedBuyAmountInCycle: realizedBuyAmountInCycle.toFixed(2),
+        bigBuyAmountInCycle: bigBuyAmountInCycle.toFixed(2),
         averagePrice: averagePrice.toFixed(2),
         confirmedAveragePriceAfterClose: averagePrice.toFixed(2),
         holdingQuantity: quantity
@@ -63,7 +69,12 @@ export function runInfiniteBuyingBacktest(options) {
         currentPrice: String(previous.close),
         previousClose: String(previousPrevious.close),
         dailyCandles: candles.slice(Math.max(0, index - 221), index),
-        enableTrendFilter: options.disableTrendFilter ? false : undefined
+        trendSymbol: options.trendSymbol,
+        trendPrice: latestCloseBeforeOrOn(trendCandles, previous.date),
+        trendCandles: trendCandles.filter((item) => item.date <= previous.date).slice(-221),
+        enableTrendFilter: options.disableTrendFilter ? false : undefined,
+        enableBigBuy: options.enableBigBuy ? true : undefined,
+        enableReverseMode: options.disableReverseMode ? false : undefined
       },
       portfolio: {
         averagePrice: averagePrice > 0 ? String(averagePrice) : String(previous.close),
@@ -93,6 +104,10 @@ export function runInfiniteBuyingBacktest(options) {
       buyOrders: plan.buyOrders.length,
       sellOrders: plan.sellOrders.length,
       buyRejected: plan.buyRejected,
+      bigBuySignal: plan.bigBuySignal,
+      skipSignal: plan.skipSignal,
+      reverseSignal: plan.reverseSignal,
+      reverseExitFilled,
       sellMaintainedOnBuyReject: plan.sellMaintainedOnBuyReject,
       warnings: plan.warnings,
       rejectReasons: plan.rejectReasons
@@ -114,6 +129,7 @@ export function runInfiniteBuyingBacktest(options) {
       const tax = amount * taxRate;
       const netAmount = amount - fee - tax;
       const realizedPnl = netAmount - fillQuantity * averagePrice;
+      const isReverseExit = order.reason === 'REVERSE_EXIT_LOC_SELL';
       cash += netAmount;
       quantity -= fillQuantity;
       diagnostics.totalFees += fee;
@@ -138,6 +154,10 @@ export function runInfiniteBuyingBacktest(options) {
       });
 
       if (quantity === 0) {
+        if (isReverseExit) {
+          reverseExitFilled = true;
+          diagnostics.reverseExitDays += 1;
+        }
         if (activeCycle) {
           activeCycle.endDate = candle.date;
           activeCycle.status = 'CLOSED';
@@ -151,6 +171,7 @@ export function runInfiniteBuyingBacktest(options) {
         }
         averagePrice = 0;
         realizedBuyAmountInCycle = 0;
+        bigBuyAmountInCycle = 0;
         currentRound = 0;
         sellRejectCount = 0;
         stateName = StrategyState.CLOSED;
@@ -187,6 +208,9 @@ export function runInfiniteBuyingBacktest(options) {
       cash -= costAmount;
       diagnostics.totalFees += fee;
       realizedBuyAmountInCycle += amount;
+      if (order.reason === 'BIG_BUY_LOC_BUY') {
+        bigBuyAmountInCycle += amount;
+      }
       currentRound = Number((realizedBuyAmountInCycle / Number(unitAmount)).toFixed(4));
       stateName = plan.nextState;
 
@@ -223,6 +247,10 @@ export function runInfiniteBuyingBacktest(options) {
       endState: stateName,
       changed: stateAtStart !== stateName,
       buyRejected: Boolean(plan.buyRejected),
+      bigBuySignal: Boolean(plan.bigBuySignal),
+      skipSignal: Boolean(plan.skipSignal),
+      reverseSignal: Boolean(plan.reverseSignal),
+      reverseExitFilled,
       sellRejected: hasRejectSide(plan, 'SELL'),
       buyOrders: plan.buyOrders.length,
       sellOrders: plan.sellOrders.length,
@@ -259,6 +287,10 @@ export function runInfiniteBuyingBacktest(options) {
     to: options.to,
     options: {
       disableTrendFilter: Boolean(options.disableTrendFilter),
+      trendSymbol: options.trendSymbol || null,
+      trendFile: options.trendFile || null,
+      enableBigBuy: Boolean(options.enableBigBuy),
+      disableReverseMode: Boolean(options.disableReverseMode),
       feeRatePercent: roundPercent(feeRate * 100),
       taxRatePercent: roundPercent(taxRate * 100)
     },
@@ -276,6 +308,7 @@ export function runInfiniteBuyingBacktest(options) {
       currentRound,
       sellRejectCount,
       realizedBuyAmountInCycle: roundMoney(realizedBuyAmountInCycle),
+      bigBuyAmountInCycle: roundMoney(bigBuyAmountInCycle),
       state: stateName
     }
   };
@@ -309,6 +342,12 @@ function shouldFillSell(order, candle) {
   return Number(candle.high) >= Number(order.price);
 }
 
+function latestCloseBeforeOrOn(candles, date) {
+  if (!Array.isArray(candles) || !date) return null;
+  const candle = candles.filter((item) => item.date <= date).at(-1);
+  return candle?.close ?? null;
+}
+
 function roundMoney(value) {
   return Number(Number(value).toFixed(2));
 }
@@ -339,6 +378,10 @@ function formatStateTransitionsCsv(stateTransitions) {
     'endState',
     'changed',
     'buyRejected',
+    'bigBuySignal',
+    'skipSignal',
+    'reverseSignal',
+    'reverseExitFilled',
     'sellRejected',
     'buyOrders',
     'sellOrders',
@@ -443,6 +486,10 @@ function createDiagnostics({ candles }) {
     rejectReasonCounts: {},
     buyRejectReasonCount: 0,
     buyRejectedDays: 0,
+    bigBuySignalDays: 0,
+    skipSignalDays: 0,
+    reverseSignalDays: 0,
+    reverseExitDays: 0,
     sellRejectReasonCount: 0,
     sellRejectedDays: 0,
     sellMaintainedOnBuyRejectDays: 0
@@ -452,6 +499,9 @@ function createDiagnostics({ candles }) {
 function recordPlanDiagnostics(diagnostics, plan) {
   diagnostics.stateCounts[plan.nextState] = (diagnostics.stateCounts[plan.nextState] || 0) + 1;
   if (plan.buyRejected) diagnostics.buyRejectedDays += 1;
+  if (plan.bigBuySignal) diagnostics.bigBuySignalDays += 1;
+  if (plan.skipSignal) diagnostics.skipSignalDays += 1;
+  if (plan.reverseSignal) diagnostics.reverseSignalDays += 1;
   if (hasRejectSide(plan, 'SELL')) diagnostics.sellRejectedDays += 1;
   if (plan.sellMaintainedOnBuyReject) diagnostics.sellMaintainedOnBuyRejectDays += 1;
 
@@ -482,6 +532,10 @@ function printDiagnostics({ diagnostics, options }) {
   console.log(`[경고 발생일] ${diagnostics.daysWithWarnings}`);
   console.log(`[매수거부 발생일] ${diagnostics.buyRejectedDays}`);
   console.log(`[매수거부 발생 횟수] ${diagnostics.buyRejectReasonCount}`);
+  console.log(`[큰수매수 조건 발생일] ${diagnostics.bigBuySignalDays}`);
+  console.log(`[스킵 조건 발생일] ${diagnostics.skipSignalDays}`);
+  console.log(`[리버스 조건 발생일] ${diagnostics.reverseSignalDays}`);
+  console.log(`[리버스 종료일] ${diagnostics.reverseExitDays}`);
   console.log(`[매도거부 발생일] ${diagnostics.sellRejectedDays}`);
   console.log(`[매도거부 발생 횟수] ${diagnostics.sellRejectReasonCount}`);
   console.log(`[매수거부 중 매도 유지일] ${diagnostics.sellMaintainedOnBuyRejectDays}`);
@@ -536,6 +590,44 @@ function translateRejectReason(reason) {
 }
 
 function translateMessage(message) {
+  if (message.startsWith('SKIP: CASH_RESERVE_BELOW_MINIMUM')) {
+    return 'SKIP: 현금 보존 기준에 걸려 스킵 상태로 전환되었습니다.';
+  }
+  if (message.startsWith('SKIP: CRASH_FILTER')) {
+    return 'SKIP: 급락 필터에 걸려 스킵 상태로 전환되었습니다.';
+  }
+  if (message.startsWith('SKIP: MAX_LOSS_PAUSE')) {
+    return 'SKIP: 평가손실 일시중단 기준에 걸려 스킵 상태로 전환되었습니다.';
+  }
+  if (message.startsWith('SKIP: TREND_FILTER_NEW_CYCLE') || message.startsWith('SKIP: MA200_UNAVAILABLE_NEW_CYCLE')) {
+    return 'SKIP: 추세 필터 기준에 걸려 스킵 상태로 전환되었습니다.';
+  }
+  if (message.startsWith('SKIP: Big buy cumulative budget is exhausted.')) {
+    return 'SKIP: 큰수매수 누적 한도를 모두 사용해 스킵 상태로 전환되었습니다.';
+  }
+  if (message.startsWith('SKIP: Skip state is maintained until reverse trigger.')) {
+    return 'SKIP: 리버스 진입 기준을 충족할 때까지 스킵 상태를 유지합니다.';
+  }
+  const skipBelowMa200Match = message.match(/^SKIP: Current price ([\d.]+) is below MA200 ([\d.]+)\.$/);
+  if (skipBelowMa200Match) {
+    return `SKIP: 현재가 ${skipBelowMa200Match[1]}가 MA200 ${skipBelowMa200Match[2]}보다 낮아 스킵 상태로 전환되었습니다.`;
+  }
+  const skipReferenceBelowMa200Match = message.match(/^SKIP: ([A-Z0-9.]+) price ([\d.]+) is below MA200 ([\d.]+)\.$/);
+  if (skipReferenceBelowMa200Match) {
+    return `SKIP: 기준 ETF ${skipReferenceBelowMa200Match[1]} 가격 ${skipReferenceBelowMa200Match[2]}가 MA200 ${skipReferenceBelowMa200Match[3]}보다 낮아 스킵 상태로 전환되었습니다.`;
+  }
+  const trendFallbackMatch = message.match(/^Reference trend data for ([A-Z0-9.]+) is unavailable; falling back to ([A-Z0-9.]+) MA200\.$/);
+  if (trendFallbackMatch) {
+    return `기준 ETF ${trendFallbackMatch[1]} 추세 데이터가 없어 ${trendFallbackMatch[2]} MA200으로 대체 판단했습니다.`;
+  }
+  const bigBuyMatch = message.match(/^BIG_BUY: Average loss (-?[\d.]+)% reached big buy trigger (-?[\d.]+)%\.$/);
+  if (bigBuyMatch) {
+    return `BIG_BUY: 평균 손실 ${bigBuyMatch[1]}%가 큰수매수 기준 ${bigBuyMatch[2]}%에 도달했습니다.`;
+  }
+  const reverseMatch = message.match(/^REVERSE: Rebound ([\d.]+)% from recent low ([\d.]+) reached reverse trigger ([\d.]+)%\.$/);
+  if (reverseMatch) {
+    return `REVERSE: 최근 저점 ${reverseMatch[2]} 대비 ${reverseMatch[1]}% 반등하여 리버스 기준 ${reverseMatch[3]}%에 도달했습니다.`;
+  }
   const sellRejectMatch = message.match(/^SELL_REJECT: Star sell blocked because star price ([\d.]+) is below average price ([\d.]+)\.$/);
   if (sellRejectMatch) {
     return `SELL_REJECT: 별표 매도가 ${sellRejectMatch[1]}가 평균단가 ${sellRejectMatch[2]}보다 낮아 차단됨`;

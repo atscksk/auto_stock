@@ -1,4 +1,5 @@
 import { appConfig } from '../config/index.js';
+import { resolveRiskConfig } from '../config/risk.config.js';
 import { calculateCurrentRound, calculateUnitAmount } from './calculators.js';
 import { generateOrderPlan } from './orderPlanner.js';
 
@@ -40,12 +41,18 @@ export function buildStrategyInput({
     totalRound: state.totalRound || appConfig.strategy.totalRound,
     currentRound,
     dailyCandles: market.dailyCandles || [],
+    trendSymbol: market.trendSymbol || appConfig.strategy.trendReferenceSymbols?.[symbol],
+    trendPrice: market.trendPrice,
+    trendCandles: market.trendCandles || [],
     openOrders: orders.openOrders || [],
     filledOrders: orders.filledOrders || [],
     strategyState: state,
-    riskSettings: market.riskSettings || appConfig.risk,
+    bigBuyAmountInCycle: state.bigBuyAmountInCycle || '0.00',
+    riskSettings: resolveRiskConfig(symbol, market.riskSettings),
     enableCrashFilter: appConfig.strategy.enableCrashFilter,
     enableTrendFilter: market.enableTrendFilter ?? appConfig.strategy.enableTrendFilter,
+    enableBigBuy: market.enableBigBuy ?? appConfig.strategy.enableBigBuy,
+    enableReverseMode: market.enableReverseMode ?? appConfig.strategy.enableReverseMode,
     marketCalendar,
     schedule: appConfig.schedule,
     now

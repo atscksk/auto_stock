@@ -1,13 +1,17 @@
 import { createClientOrderId } from '../utils/idempotency.js';
 import { floorQuantity, multiply, round, toNumber } from '../utils/decimal.js';
 import {
+  calculateAverageLossPercent,
+  calculateDayDropPercent,
   calculateLimit15Price,
   calculateStarPercent,
-  calculateStarPrice
+  calculateStarPrice,
+  countDownDays
 } from './calculators.js';
 import { evaluateCutoffPolicy } from './cutoffPolicy.js';
 import { evaluateRiskFilters } from './riskFilters.js';
-import { decideNormalState, isTradingHalted, StrategyState } from './stateMachine.js';
+import { decideNormalState, getStateOrderPolicy, isTradingHalted, StrategyState } from './stateMachine.js';
+import { evaluateTrendMa200 } from './trendFilter.js';
 
 export function generateOrderPlan(input) {
   const generatedAt = new Date().toISOString();
@@ -18,6 +22,9 @@ export function generateOrderPlan(input) {
   const rejectReasons = [];
   const currentSellRejectCount = Number(input.strategyState?.sellRejectCount || 0);
   let buyRejected = false;
+  let bigBuySignal = false;
+  let skipSignal = false;
+  let reverseSignal = false;
   let sellMaintainedOnBuyReject = false;
   let nextSellRejectCount = 0;
   let manualHaltReason = null;
@@ -83,12 +90,36 @@ export function generateOrderPlan(input) {
     currentRound: input.currentRound,
     totalRound: input.totalRound,
     risk,
-    state
+    state,
+    holdingQuantity: input.holdingQuantity
   });
+  const reverse = evaluateReverseCondition({ input, state, nextState });
+  reverseSignal = reverse.triggered;
+  if (reverseSignal && nextState !== StrategyState.MANUAL_HALT) {
+    nextState = StrategyState.REVERSE;
+    warnings.push(`REVERSE: ${reverse.message}`);
+  }
+  const skip = reverseSignal
+    ? { triggered: false, message: 'Reverse mode has priority over skip.' }
+    : evaluateSkipCondition({ input, risk, nextState });
+  skipSignal = skip.triggered;
+  if (skipSignal && nextState !== StrategyState.MANUAL_HALT) {
+    nextState = StrategyState.SKIP;
+    warnings.push(`SKIP: ${skip.message}`);
+  }
+  const bigBuy = skipSignal
+    ? { triggered: false, message: 'Skip state has priority over big buy.' }
+    : evaluateBigBuyCondition({ input, risk });
+  bigBuySignal = bigBuy.triggered;
+  if (bigBuySignal && nextState !== StrategyState.MANUAL_HALT && nextState !== StrategyState.SKIP) {
+    nextState = StrategyState.BIG_BUY;
+    warnings.push(`BIG_BUY: ${bigBuy.message}`);
+  }
 
   const canPlanOrders = cutoff.marketOpen !== false && !cutoff.noTouch && input.openOrders?.length === 0;
   if (canPlanOrders) {
-    if (risk.buyAllowed && cutoff.canSubmitOrder) {
+    let orderPolicy = getStateOrderPolicy(nextState);
+    if (orderPolicy.buy && risk.buyAllowed && cutoff.canSubmitOrder) {
       const buyPlan = buildBuyOrders({ input, nextState, risk });
       buyOrders.push(...buyPlan.orders);
       if (buyPlan.rejected) {
@@ -97,9 +128,18 @@ export function generateOrderPlan(input) {
         warnings.push(`BUY_REJECT: ${buyPlan.rejectReason.message}`);
       }
     }
-    if (risk.sellAllowed && Number(input.availableSellQuantity || input.holdingQuantity || 0) > 0 && cutoff.canSubmitOrder) {
-      const sellPlan = buildSellOrders({ input, starPercent, starPrice, limit15Price, warnings, rejectReasons });
+    orderPolicy = getStateOrderPolicy(nextState);
+    if (
+      (orderPolicy.standardSell || orderPolicy.reverseExitSell)
+      && risk.sellAllowed
+      && Number(input.availableSellQuantity || input.holdingQuantity || 0) > 0
+      && cutoff.canSubmitOrder
+    ) {
+      const sellPlan = buildSellOrders({ input, nextState, orderPolicy, starPercent, starPrice, limit15Price, warnings, rejectReasons });
       sellOrders.push(...sellPlan.orders);
+      if (sellPlan.exitWait) {
+        nextState = StrategyState.EXIT_WAIT;
+      }
       sellMaintainedOnBuyReject = buyRejected && sellOrders.length > 0;
       if (sellPlan.sellRejected && nextState !== StrategyState.MANUAL_HALT) {
         nextState = StrategyState.SELL_REJECT;
@@ -145,6 +185,9 @@ export function generateOrderPlan(input) {
     warnings,
     rejectReasons,
     buyRejected,
+    bigBuySignal,
+    skipSignal,
+    reverseSignal,
     sellMaintainedOnBuyReject,
     riskLevel: risk.riskLevel,
     expectedCashUsage,
@@ -202,9 +245,17 @@ function warningMatchesBlock(warning, block) {
   return patterns[block] ? warning.includes(patterns[block]) : false;
 }
 
-function decideNextState({ currentRound, totalRound, risk, state }) {
+function decideNextState({ currentRound, totalRound, risk, state, holdingQuantity }) {
   if (risk.blocks.includes('MAX_LOSS_MANUAL_HALT') || risk.blocks.includes('MAX_LOSS_STOP')) {
     return StrategyState.MANUAL_HALT;
+  }
+  if (state === StrategyState.REVERSE) {
+    if (Number(holdingQuantity || 0) <= 0) return StrategyState.CLOSED;
+    return StrategyState.REVERSE;
+  }
+  if (state === StrategyState.EXIT_WAIT) {
+    if (Number(holdingQuantity || 0) <= 0) return StrategyState.CLOSED;
+    return StrategyState.EXIT_WAIT;
   }
   if (!risk.buyAllowed && state !== StrategyState.READY) {
     return StrategyState.BUY_REJECT;
@@ -212,11 +263,198 @@ function decideNextState({ currentRound, totalRound, risk, state }) {
   return decideNormalState(currentRound, totalRound);
 }
 
+function evaluateBigBuyCondition({ input, risk }) {
+  if (input.enableBigBuy !== true) return { triggered: false, message: 'Big buy is disabled.' };
+  if (!risk.buyAllowed) return { triggered: false, message: 'Risk filters blocked buying.' };
+
+  const blocked = evaluateBigBuyBlocks(input);
+  if (blocked) return { triggered: false, message: blocked.message, blocked: true, blockCode: blocked.code };
+
+  const holdingQuantity = Number(input.holdingQuantity || 0);
+  const averagePrice = toNumber(input.averagePrice || 0);
+  const currentPrice = toNumber(input.currentPrice || 0);
+  if (holdingQuantity <= 0 || averagePrice <= 0 || currentPrice <= 0) {
+    return { triggered: false, message: 'Big buy requires an existing position and valid prices.' };
+  }
+
+  const lossPercent = ((currentPrice - averagePrice) / averagePrice) * 100;
+  const triggerLossPercent = Number(input.riskSettings?.bigBuyTriggerLossPercent ?? -5);
+  if (lossPercent > triggerLossPercent) {
+    return {
+      triggered: false,
+      message: `Average loss ${lossPercent.toFixed(2)}% is above big buy trigger ${triggerLossPercent.toFixed(2)}%.`
+    };
+  }
+
+  return {
+    triggered: true,
+    lossPercent,
+    triggerLossPercent,
+    message: `Average loss ${lossPercent.toFixed(2)}% reached big buy trigger ${triggerLossPercent.toFixed(2)}%.`
+  };
+}
+
+function evaluateReverseCondition({ input, state, nextState }) {
+  if (input.enableReverseMode === false) return { triggered: false, message: 'Reverse mode is disabled.' };
+  if (nextState === StrategyState.MANUAL_HALT) return { triggered: false, message: 'Manual halt has priority.' };
+  if (state !== StrategyState.SKIP) return { triggered: false, message: 'Reverse mode starts only after skip state.' };
+
+  const holdingQuantity = Number(input.holdingQuantity || 0);
+  const currentPrice = toNumber(input.currentPrice || 0);
+  if (holdingQuantity <= 0 || currentPrice <= 0) {
+    return { triggered: false, message: 'Reverse mode requires an existing position and a valid current price.' };
+  }
+
+  const recentLow = calculateRecentLowBeforeCurrent(input.dailyCandles, Number(input.riskSettings?.reverseLookbackDays || 5));
+  if (recentLow == null || recentLow <= 0) {
+    return { triggered: false, message: 'Reverse mode requires recent low data.' };
+  }
+
+  const reboundPercent = ((currentPrice - recentLow) / recentLow) * 100;
+  const triggerPercent = Number(input.riskSettings?.reverseReboundPercent ?? 3);
+  if (reboundPercent < triggerPercent) {
+    return {
+      triggered: false,
+      reboundPercent,
+      triggerPercent,
+      recentLow,
+      message: `Rebound ${reboundPercent.toFixed(2)}% is below reverse trigger ${triggerPercent.toFixed(2)}%.`
+    };
+  }
+
+  return {
+    triggered: true,
+    reboundPercent,
+    triggerPercent,
+    recentLow,
+    message: `Rebound ${reboundPercent.toFixed(2)}% from recent low ${recentLow.toFixed(2)} reached reverse trigger ${triggerPercent.toFixed(2)}%.`
+  };
+}
+
+function evaluateSkipCondition({ input, risk, nextState }) {
+  if (nextState === StrategyState.MANUAL_HALT) return { triggered: false, message: 'Manual halt has priority.' };
+  if (input.strategyState?.state === StrategyState.SKIP && Number(input.holdingQuantity || 0) > 0) {
+    return {
+      triggered: true,
+      code: 'SKIP_MAINTAINED',
+      message: 'Skip state is maintained until reverse trigger.'
+    };
+  }
+
+  const skipBlocks = [
+    'CASH_RESERVE_BELOW_MINIMUM',
+    'CRASH_FILTER',
+    'MAX_LOSS_PAUSE',
+    'TREND_FILTER_NEW_CYCLE',
+    'MA200_UNAVAILABLE_NEW_CYCLE'
+  ];
+  const block = risk.blocks.find((item) => skipBlocks.includes(item));
+  if (block) {
+    return {
+      triggered: true,
+      code: block,
+      message: `${block} triggered skip state.`
+    };
+  }
+
+  const currentPrice = toNumber(input.currentPrice || 0);
+  if ((input.dailyCandles?.length || input.trendCandles?.length) && input.riskSettings.enableTrendFilter !== false) {
+    const trend = evaluateTrendMa200(input);
+    if (trend.available && currentPrice > 0 && trend.price < trend.ma200) {
+      return {
+        triggered: true,
+        code: 'SKIP_BELOW_MA200',
+        message: `${trend.symbol} price ${trend.price} is below MA200 ${trend.ma200.toFixed(2)}.`
+      };
+    }
+  }
+
+  if (input.enableBigBuy === true) {
+    const bigBuyCondition = evaluateBigBuyCondition({ input, risk });
+    const remainingBigBuyBudget = calculateRemainingBigBuyBudget(input);
+    if (bigBuyCondition.triggered && remainingBigBuyBudget <= 0) {
+      return {
+        triggered: true,
+        code: 'SKIP_BIG_BUY_LIMIT_EXHAUSTED',
+        message: 'Big buy cumulative budget is exhausted.'
+      };
+    }
+  }
+
+  return { triggered: false, message: 'Skip condition not met.' };
+}
+
+function evaluateBigBuyBlocks(input) {
+  const currentPrice = toNumber(input.currentPrice || 0);
+  const previousClose = toNumber(input.previousClose || 0);
+  const averagePrice = toNumber(input.averagePrice || 0);
+  const totalEquity = Number(input.cash || 0) + Number(input.holdingQuantity || 0) * currentPrice;
+  const cashRatio = totalEquity > 0 ? Number(input.cash || 0) / totalEquity : 0;
+  const minCashRatio = Number(input.riskSettings.bigBuyMinCashRatio ?? 0.25);
+  if (cashRatio < minCashRatio) {
+    return {
+      code: 'BIG_BUY_CASH_RATIO_BELOW_MINIMUM',
+      message: `Cash ratio ${formatPercent(cashRatio)} is below big buy minimum ${formatPercent(minCashRatio)}.`
+    };
+  }
+
+  const dayDrop = calculateDayDropPercent(currentPrice, previousClose);
+  if (input.riskSettings.enableCrashFilter !== false && dayDrop <= Number(input.riskSettings.crashDropPercent)) {
+    return {
+      code: 'BIG_BUY_CRASH_FILTER',
+      message: `Day drop ${dayDrop.toFixed(2)}% blocks big buy.`
+    };
+  }
+
+  const averageLoss = calculateAverageLossPercent(currentPrice, averagePrice);
+  if (averageLoss <= Number(input.riskSettings.maxLossPause)) {
+    return {
+      code: 'BIG_BUY_MAX_LOSS_PAUSE',
+      message: `Average loss ${averageLoss.toFixed(2)}% blocks big buy.`
+    };
+  }
+
+  if (input.dailyCandles?.length || input.trendCandles?.length) {
+    if (input.dailyCandles?.length) {
+      const downDays = countDownDays(input.dailyCandles, input.riskSettings.consecutiveDownDaysLookback);
+      if (downDays >= Number(input.riskSettings.consecutiveDownDaysLimit)) {
+        return {
+          code: 'BIG_BUY_CONSECUTIVE_DOWN_DAYS',
+          message: `Recent down days ${downDays}/${input.riskSettings.consecutiveDownDaysLookback} blocks big buy.`
+        };
+      }
+    }
+
+    if (input.riskSettings.enableTrendFilter !== false) {
+      const trend = evaluateTrendMa200(input);
+      if (trend.available && trend.price < trend.ma200) {
+        return {
+          code: 'BIG_BUY_BELOW_MA200',
+          message: `${trend.symbol} price ${trend.price} is below MA200 ${trend.ma200.toFixed(2)}.`
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function formatPercent(value) {
+  return `${(Number(value) * 100).toFixed(1)}%`;
+}
+
 function buildBuyOrders({ input, nextState, risk }) {
-  if (nextState === StrategyState.MANUAL_HALT) return { orders: [], rejected: false, rejectReason: null };
   const unitAmount = Number(input.unitAmount);
   const maxUnits = Number(input.currentRound) <= Number(input.totalRound) / 2 ? 2 : 1;
-  const budget = round(unitAmount * maxUnits * risk.buySizeMultiplier, 2);
+  const baseBudget = unitAmount * maxUnits * risk.buySizeMultiplier;
+  const remainingBigBuyBudget = calculateRemainingBigBuyBudget(input);
+  const bigBuyBudget = nextState === StrategyState.BIG_BUY
+    ? Math.min(
+      Number(input.cash || 0) * Number(input.riskSettings.bigBuyMaxCashRatio || 0.2) * risk.buySizeMultiplier,
+      remainingBigBuyBudget
+    )
+    : 0;
+  const budget = round(nextState === StrategyState.BIG_BUY ? bigBuyBudget : baseBudget, 2);
   const cashAfterReserve = Math.max(0, Number(input.cash || 0) - Number(input.strategyCapital) * Number(input.riskSettings.minCashReserveRatio));
   const usableBudget = Math.min(Number(budget), cashAfterReserve, Number(input.buyingPower || input.cash || 0));
   if (usableBudget <= 0) {
@@ -267,8 +505,24 @@ function buildBuyOrders({ input, nextState, risk }) {
     price: buyPrice,
     quantity,
     status: 'PLANNED',
-    reason: 'NORMAL_MODE_LOC_BUY'
+    reason: nextState === StrategyState.BIG_BUY ? 'BIG_BUY_LOC_BUY' : 'NORMAL_MODE_LOC_BUY'
   }], rejected: false, rejectReason: null };
+}
+
+function calculateRemainingBigBuyBudget(input) {
+  const maxCapitalBudget = Number(input.strategyCapital || 0) * Number(input.riskSettings.bigBuyMaxCapitalRatio || 0.3);
+  const usedBudget = Number(input.bigBuyAmountInCycle || input.strategyState?.bigBuyAmountInCycle || 0);
+  return Math.max(0, maxCapitalBudget - usedBudget);
+}
+
+function calculateRecentLowBeforeCurrent(dailyCandles = [], lookbackDays = 5) {
+  if (!Array.isArray(dailyCandles) || dailyCandles.length < 2) return null;
+  const priorCandles = dailyCandles.slice(0, -1).slice(-Math.max(1, lookbackDays));
+  const lows = priorCandles
+    .map((candle) => Number(candle.low ?? candle.close))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (!lows.length) return null;
+  return Math.min(...lows);
 }
 
 function buyReject({ code, message, details }) {
@@ -285,12 +539,17 @@ function buyReject({ code, message, details }) {
   };
 }
 
-function buildSellOrders({ input, starPercent, starPrice, limit15Price, warnings, rejectReasons }) {
+function buildSellOrders({ input, nextState, orderPolicy, starPercent, starPrice, limit15Price, warnings, rejectReasons }) {
   const quantity = Math.floor(Number(input.availableSellQuantity || input.holdingQuantity || 0));
   if (quantity <= 0) return { orders: [], sellRejected: false };
 
   const cycleId = input.strategyState?.cycleId || `${input.symbol}-CYCLE`;
   const averagePrice = toNumber(input.averagePrice || input.currentPrice);
+  if (orderPolicy.reverseExitSell || nextState === StrategyState.REVERSE || nextState === StrategyState.EXIT_WAIT) {
+    return buildReverseSellOrders({ input, cycleId, quantity, averagePrice });
+  }
+  if (!orderPolicy.standardSell) return { orders: [], sellRejected: false };
+
   const starSellWouldRealizeLoss = toNumber(starPercent) < 0 || toNumber(starPrice) < averagePrice;
   const orders = [];
   let sellRejected = false;
@@ -379,6 +638,36 @@ function buildSellOrders({ input, starPercent, starPrice, limit15Price, warnings
   return { orders, sellRejected };
 }
 
+function buildReverseSellOrders({ input, cycleId, quantity, averagePrice }) {
+  const exitProfitPercent = Number(input.riskSettings?.reverseExitProfitPercent ?? 0);
+  const quantityRatio = Math.min(1, Math.max(0, Number(input.riskSettings?.reverseExitQuantityRatio ?? 1)));
+  const sellQuantity = Math.max(1, Math.floor(quantity * quantityRatio));
+  const exitPrice = round(averagePrice * (1 + exitProfitPercent / 100), 2);
+
+  return {
+    orders: [{
+      clientOrderId: createClientOrderId({
+        cycleId,
+        symbol: input.symbol,
+        side: 'SELL',
+        sequence: 1,
+        date: input.now || new Date()
+      }),
+      cycleId,
+      symbol: input.symbol,
+      side: 'SELL',
+      orderType: 'LIMIT',
+      timeInForce: 'CLS',
+      price: exitPrice,
+      quantity: sellQuantity,
+      status: 'PLANNED',
+      reason: 'REVERSE_EXIT_LOC_SELL'
+    }],
+    sellRejected: false,
+    exitWait: true
+  };
+}
+
 function haltPlan({ input, generatedAt, state, starPercent, starPrice, warnings, reason }) {
   return {
     symbol: input.symbol,
@@ -393,6 +682,9 @@ function haltPlan({ input, generatedAt, state, starPercent, starPrice, warnings,
     warnings,
     rejectReasons: [],
     buyRejected: false,
+    bigBuySignal: false,
+    skipSignal: false,
+    reverseSignal: false,
     sellMaintainedOnBuyReject: false,
     riskLevel: 'HALT',
     expectedCashUsage: '0.00',

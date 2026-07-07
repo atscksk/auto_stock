@@ -13,6 +13,8 @@ import { runMa20Backtest } from '../../toss-etf-ma20-3pct-trader/src/backtest.js
 const fixture = 'strategies/infinite_buying/test/fixtures/sample-candles.csv';
 const cycleFixture = 'strategies/infinite_buying/test/fixtures/cycle-candles.csv';
 const rejectFixture = 'strategies/infinite_buying/test/fixtures/reject-candles.csv';
+const bigBuyFixture = 'strategies/infinite_buying/test/fixtures/big-buy-candles.csv';
+const reverseExitFixture = 'strategies/infinite_buying/test/fixtures/reverse-exit-candles.csv';
 
 test('runs infinite buying backtest from csv', () => {
   const result = runInfiniteBuyingBacktest({
@@ -166,3 +168,130 @@ test('formats infinite buying comparison table', () => {
   assert.match(table, /TQQQ/);
   assert.match(table, /SOXL/);
 });
+
+test('records big buy signal in infinite buying backtest diagnostics', () => {
+  const result = runInfiniteBuyingBacktest({
+    file: bigBuyFixture,
+    symbol: 'TQQQ',
+    cash: 10000,
+    strategyCapital: 10000,
+    disableTrendFilter: true,
+    enableBigBuy: true
+  });
+
+  assert.ok(result.diagnostics.bigBuySignalDays > 0);
+  assert.ok(result.stateTransitions.some((item) => item.bigBuySignal));
+});
+
+test('includes reverse signal diagnostics in infinite buying backtest', () => {
+  const result = runInfiniteBuyingBacktest({
+    file: bigBuyFixture,
+    symbol: 'TQQQ',
+    cash: 10000,
+    strategyCapital: 10000,
+    disableTrendFilter: true,
+    enableBigBuy: true
+  });
+
+  assert.equal(typeof result.diagnostics.reverseSignalDays, 'number');
+});
+
+test('closes cycle after reverse exit fill in infinite buying backtest', () => {
+  const result = runInfiniteBuyingBacktest({
+    file: reverseExitFixture,
+    symbol: 'TQQQ',
+    cash: 10000,
+    strategyCapital: 10000,
+    disableTrendFilter: true
+  });
+
+  assert.equal(result.diagnostics.reverseSignalDays, 1);
+  assert.equal(result.diagnostics.reverseExitDays, 1);
+  assert.equal(result.trades.some((trade) => trade.reason === 'REVERSE_EXIT_LOC_SELL'), true);
+  assert.equal(result.cycleSummaries[0].status, 'CLOSED');
+  assert.equal(result.finalState.quantity, 0);
+  assert.equal(result.finalState.state, 'READY');
+  assert.equal(result.stateTransitions.some((item) => item.reverseExitFilled), true);
+  assert.equal(result.stateTransitions.some((item) => item.plannedState === 'EXIT_WAIT'), true);
+});
+
+test('uses QQQ trend file to block TQQQ new cycle in backtest', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-stock-trend-'));
+  const targetPath = path.join(tempDir, 'TQQQ.csv');
+  const trendPath = path.join(tempDir, 'QQQ.csv');
+  fs.writeFileSync(targetPath, formatCandlesCsv(makeCandles({
+    count: 205,
+    startClose: 120,
+    finalClose: 120
+  })), 'utf8');
+  fs.writeFileSync(trendPath, formatCandlesCsv(makeCandles({
+    count: 205,
+    startClose: 100,
+    finalClose: 80,
+    finalCloseDays: 5
+  })), 'utf8');
+
+  const result = runInfiniteBuyingBacktest({
+    file: targetPath,
+    trendFile: trendPath,
+    trendSymbol: 'QQQ',
+    symbol: 'TQQQ',
+    cash: 10000,
+    strategyCapital: 10000
+  });
+
+  assert.equal(result.trades.length, 0);
+  assert.equal(result.diagnostics.rejectReasonCounts.TREND_FILTER_NEW_CYCLE > 0, true);
+});
+
+test('uses SOXX trend file to block SOXL new cycle in backtest', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-stock-soxl-trend-'));
+  const targetPath = path.join(tempDir, 'SOXL.csv');
+  const trendPath = path.join(tempDir, 'SOXX.csv');
+  fs.writeFileSync(targetPath, formatCandlesCsv(makeCandles({
+    count: 205,
+    startClose: 40,
+    finalClose: 40
+  })), 'utf8');
+  fs.writeFileSync(trendPath, formatCandlesCsv(makeCandles({
+    count: 205,
+    startClose: 100,
+    finalClose: 75,
+    finalCloseDays: 5
+  })), 'utf8');
+
+  const result = runInfiniteBuyingBacktest({
+    file: targetPath,
+    trendFile: trendPath,
+    trendSymbol: 'SOXX',
+    symbol: 'SOXL',
+    cash: 10000,
+    strategyCapital: 10000
+  });
+
+  assert.equal(result.trades.length, 0);
+  assert.equal(result.diagnostics.rejectReasonCounts.TREND_FILTER_NEW_CYCLE > 0, true);
+});
+
+function makeCandles({ count, startClose, finalClose, finalCloseDays = 1 }) {
+  const start = new Date('2025-01-01T00:00:00Z');
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(start.getTime() + index * 86400000).toISOString().slice(0, 10);
+    const close = index >= count - finalCloseDays ? finalClose : startClose;
+    return { date, open: close, high: close + 1, low: close - 1, close, volume: 1000 };
+  });
+}
+
+function formatCandlesCsv(candles) {
+  return [
+    'Date,Open,High,Low,Close,Volume',
+    ...candles.map((candle) => [
+      candle.date,
+      candle.open,
+      candle.high,
+      candle.low,
+      candle.close,
+      candle.volume
+    ].join(','))
+  ].join('\n');
+}

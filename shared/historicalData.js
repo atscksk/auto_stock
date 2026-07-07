@@ -204,7 +204,9 @@ function translateSide(side) {
 function translateReason(reason) {
   const labels = {
     NORMAL_MODE_LOC_BUY: '일반 모드 LOC 매수',
+    BIG_BUY_LOC_BUY: '큰수매수 LOC 매수',
     STAR_PERCENT_LOC_SELL: '별표% LOC 매도',
+    REVERSE_EXIT_LOC_SELL: '리버스모드 LOC 매도',
     LIMIT_15_DAY_SELL: '15% DAY 보조 매도',
     'close >= MA20 * BUY_THRESHOLD': '종가가 MA20 매수 기준 이상',
     'close <= MA20 * SELL_THRESHOLD': '종가가 MA20 매도 기준 이하'

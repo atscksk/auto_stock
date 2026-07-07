@@ -25,6 +25,7 @@ export function loadState(symbol) {
     holdingQuantity: 0,
     brokerSyncedAt: null,
     bigBuyCount: 0,
+    bigBuyAmountInCycle: '0.00',
     buyRejectCount: 0,
     sellRejectCount: 0,
     manualHaltReason: null

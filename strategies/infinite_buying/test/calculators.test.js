@@ -7,7 +7,7 @@ import {
   calculateStarPrice,
   calculateUnitAmount
 } from '../src/strategy/calculators.js';
-import { decideNormalState, StrategyState } from '../src/strategy/stateMachine.js';
+import { decideNormalState, getStateOrderPolicy, StateOrderPolicy, StrategyState } from '../src/strategy/stateMachine.js';
 
 test('calculates unit amount and fractional T', () => {
   assert.equal(calculateUnitAmount('10000', 40), '250.00');
@@ -23,4 +23,49 @@ test('calculates star percent and prices', () => {
 test('decides front and back half state', () => {
   assert.equal(decideNormalState(10, 20), StrategyState.NORMAL_FRONT);
   assert.equal(decideNormalState(10.1, 20), StrategyState.NORMAL_BACK);
+});
+
+test('defines allowed order types for every strategy state', () => {
+  assert.deepEqual(Object.keys(StateOrderPolicy).sort(), Object.values(StrategyState).sort());
+
+  assert.deepEqual(getStateOrderPolicy(StrategyState.READY), {
+    buy: true,
+    standardSell: false,
+    reverseExitSell: false
+  });
+  assert.deepEqual(getStateOrderPolicy(StrategyState.NORMAL_FRONT), {
+    buy: true,
+    standardSell: true,
+    reverseExitSell: false
+  });
+  assert.deepEqual(getStateOrderPolicy(StrategyState.BUY_REJECT), {
+    buy: false,
+    standardSell: true,
+    reverseExitSell: false
+  });
+  assert.deepEqual(getStateOrderPolicy(StrategyState.SKIP), {
+    buy: false,
+    standardSell: true,
+    reverseExitSell: false
+  });
+  assert.deepEqual(getStateOrderPolicy(StrategyState.REVERSE), {
+    buy: false,
+    standardSell: false,
+    reverseExitSell: true
+  });
+  assert.deepEqual(getStateOrderPolicy(StrategyState.EXIT_WAIT), {
+    buy: false,
+    standardSell: false,
+    reverseExitSell: true
+  });
+  assert.deepEqual(getStateOrderPolicy(StrategyState.CLOSED), {
+    buy: false,
+    standardSell: false,
+    reverseExitSell: false
+  });
+  assert.deepEqual(getStateOrderPolicy(StrategyState.MANUAL_HALT), {
+    buy: false,
+    standardSell: false,
+    reverseExitSell: false
+  });
 });

@@ -7,6 +7,10 @@ export const strategyConfig = {
     TQQQ: 0.5,
     SOXL: 0.3
   },
+  trendReferenceSymbols: {
+    TQQQ: 'QQQ',
+    SOXL: 'SOXX'
+  },
   enableBigBuy: false,
   enableReverseMode: true,
   enableBuyReject: true,
