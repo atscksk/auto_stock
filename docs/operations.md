@@ -206,6 +206,8 @@ npm run health
 
 ```text
 npm run infinite:health
+npm run infinite:summary
+npm run infinite:plan
 npm run infinite:trade
 npm run infinite:reconcile
 npm run ma20:signal
@@ -223,6 +225,12 @@ heartbeat cron 예시:
 
 ```cron
 0 9 * * 1-5 flock -n /tmp/auto-stock-health.lock bash -lc 'cd /opt/auto_stock && /usr/bin/npm run health >> /opt/auto_stock/strategies/infinite_buying/logs/cron-health.log 2>&1'
+```
+
+무한매수 일일 요약 cron 예시:
+
+```cron
+10 6 * * 2-6 flock -n /tmp/auto-stock-infinite-summary.lock bash -lc 'cd /opt/auto_stock && /usr/bin/npm run infinite:summary -- --symbol TQQQ >> /opt/auto_stock/strategies/infinite_buying/logs/cron-summary.log 2>&1'
 ```
 
 ## 장시간과 브로커 점검 예외
@@ -248,6 +256,7 @@ paper 운영이 안정화되기 전까지는 아래 값을 유지하세요.
 TRADING_MODE=paper
 ENABLE_AUTO_ORDER=false
 LIVE_CONFIRM=NO
+IB_LIVE_ORDER_AMOUNT_LIMIT=
 ```
 
 실거래 전 체크리스트:
@@ -264,3 +273,94 @@ swap이 활성화됨
 ```
 
 실거래는 반드시 소액으로 먼저 검증하세요.
+
+## 무한매수 실거래 전 체크리스트
+
+실거래 전에는 아래 항목을 모두 확인합니다.
+
+```text
+VPS에서 git pull 후 npm install 완료
+VPS에서 npm test 통과
+TRADING_MODE=paper 상태로 plan/trade/reconcile cron이 정상 실행됨
+infinite:plan 알림에서 상태, T, 평단, 주문 후보를 확인함
+매수거부/매도거부 알림이 별도 메시지로 수신됨
+infinite:summary 일일 요약 알림이 정상 수신됨
+infinite:health 하트비트에 마지막 실행 시간이 표시됨
+TOSS_ACCOUNT_SEQ, TOSS_CLIENT_ID, TOSS_CLIENT_SECRET 값이 서버 .env에만 존재함
+브로커 API key가 VPS public IP로 제한됨
+ENABLE_AUTO_ORDER=false, LIVE_CONFIRM=NO 상태에서 paper 검증 완료
+소액 실거래 전환 시 ENABLE_AUTO_ORDER=true, LIVE_CONFIRM=YES, IB_LIVE_ORDER_AMOUNT_LIMIT를 명시적으로 변경
+첫 실거래 후 infinite:reconcile로 주문 상태와 내부 상태를 확인
+MANUAL_HALT 발생 시 추가 주문 cron을 즉시 중지할 수 있음
+```
+
+실거래 전환 직전 확인 명령:
+
+```bash
+cd /opt/auto_stock
+git pull
+npm install
+npm test
+npm run infinite:plan -- --symbol TQQQ
+npm run infinite:summary -- --symbol TQQQ
+npm run infinite:health -- --symbol TQQQ
+```
+
+## 장애 발생 시 수동 복구 절차
+
+장애가 발생하면 먼저 추가 주문을 멈춘 뒤 상태를 확인합니다. 손으로 급하게 주문을 넣기 전에 브로커 계좌와 내부 상태를 맞추는 것이 우선입니다.
+
+1. cron 중지 또는 주석 처리:
+
+```bash
+crontab -e
+```
+
+`infinite:trade` 항목을 주석 처리하고 저장합니다. plan, health, summary는 필요하면 유지해도 됩니다.
+
+2. 최근 로그 확인:
+
+```bash
+tail -n 100 /opt/auto_stock/strategies/infinite_buying/logs/cron-trade.log
+tail -n 100 /opt/auto_stock/strategies/infinite_buying/logs/cron-reconcile.log
+tail -n 100 /opt/auto_stock/strategies/infinite_buying/logs/orders.jsonl
+```
+
+3. 브로커 상태와 내부 상태 대조:
+
+```bash
+cd /opt/auto_stock
+npm run infinite:reconcile -- --symbol TQQQ
+```
+
+불일치가 있으면 상태가 `MANUAL_HALT`로 전환됩니다. 이 상태에서는 추가 주문이 차단되어야 정상입니다.
+
+4. 서버 상태 확인:
+
+```bash
+uptime
+free -h
+df -h
+dmesg -T | grep -i -E 'killed process|out of memory|oom'
+```
+
+5. 원인별 대응:
+
+```text
+IP 제한 오류: 브로커 API key의 허용 IP에 VPS public IP를 등록
+토큰 발급 실패: client id/secret, 계정 권한, API 사용 가능 상태 확인
+권한 오류: 주문 권한과 계좌번호(TOSS_ACCOUNT_SEQ) 확인
+rate limit: cron 빈도 축소, 즉시 반복 실행 중지
+부분체결/미체결: reconcile 후 다음 장에서 상태 확인, 필요 시 브로커 앱에서 직접 취소
+MANUAL_HALT: 내부 상태 파일과 브로커 보유수량/평단을 비교한 뒤 원인을 기록
+```
+
+6. 복구 후 재개:
+
+```bash
+npm test
+npm run infinite:plan -- --symbol TQQQ
+npm run infinite:summary -- --symbol TQQQ
+```
+
+알림과 로그가 정상이고 브로커 상태가 맞는 것을 확인한 뒤 `crontab -e`에서 `infinite:trade`를 다시 활성화합니다.

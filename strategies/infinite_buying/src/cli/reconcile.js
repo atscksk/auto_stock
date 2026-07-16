@@ -1,12 +1,13 @@
 import { parseArgs } from './args.js';
 import { runReconcileJob } from '../jobs/reconcileJob.js';
 import { notifySafely } from '../../../../shared/notificationService.js';
+import { notifyCycleClosed, notifyFilledOrders } from '../services/strategyNotificationService.js';
 
 const args = parseArgs();
 const symbol = String(args.symbol || process.env.IB_SYMBOL || 'TQQQ').toUpperCase();
 
 try {
-  const { result } = runReconcileJob({ symbol, args });
+  const { result, orderStatusResult } = await runReconcileJob({ symbol, args });
 
   console.log(`[sync] ${result.isSynced ? 'OK' : 'MANUAL_HALT'}`);
   console.log(`[T] ${result.recalculatedRound}`);
@@ -28,6 +29,10 @@ try {
       differences: result.differences
     }
   });
+  await notifyFilledOrders({ symbol, orders: orderStatusResult?.newlyFilledOrders || [] });
+  if (result.cycleClosed) {
+    await notifyCycleClosed({ symbol, result });
+  }
 } catch (error) {
   await notifySafely({
     type: 'RECONCILE_JOB_FAILED',

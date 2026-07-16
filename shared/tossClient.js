@@ -116,6 +116,20 @@ export function createTossClient({
     });
   }
 
+  async function getOrders(accountSeq, { status = 'OPEN', symbol, from, to, cursor, limit } = {}) {
+    return request('/api/v1/orders', {
+      accountSeq,
+      query: { status, symbol, from, to, cursor, limit }
+    });
+  }
+
+  async function getOrder(accountSeq, orderId) {
+    if (!orderId) throw new Error('orderId is required.');
+    return request(`/api/v1/orders/${encodeURIComponent(orderId)}`, {
+      accountSeq
+    });
+  }
+
   async function getBuyingPower(accountSeq, currency = 'KRW') {
     const result = await request('/api/v1/buying-power', {
       accountSeq,
@@ -146,6 +160,8 @@ export function createTossClient({
     getDailyCandles,
     getHoldings,
     createOrder,
+    getOrders,
+    getOrder,
     getBuyingPower,
     getSellableQuantity,
     getKrMarketCalendar

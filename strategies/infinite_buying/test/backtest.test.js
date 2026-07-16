@@ -30,6 +30,22 @@ test('runs infinite buying backtest from csv', () => {
   assert.ok(result.equityCurve.length > 0);
 });
 
+test('runs infinite buying backtest for SOXL sample settings', () => {
+  const result = runInfiniteBuyingBacktest({
+    file: fixture,
+    symbol: 'SOXL',
+    cash: 10000,
+    strategyCapital: 10000,
+    disableTrendFilter: true
+  });
+
+  assert.equal(result.strategy, 'infinite_buying');
+  assert.equal(result.symbol, 'SOXL');
+  assert.ok(result.metrics.finalEquity > 0);
+  assert.ok(result.equityCurve.length > 0);
+  assert.equal(result.diagnostics.stateCounts.NORMAL_FRONT > 0, true);
+});
+
 test('runs ma20 backtest from csv', () => {
   const result = runMa20Backtest({
     file: fixture,

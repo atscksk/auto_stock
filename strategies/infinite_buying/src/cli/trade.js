@@ -2,12 +2,14 @@ import { parseArgs } from './args.js';
 import { printPlan } from './format.js';
 import { runTradeJob } from '../jobs/tradeJob.js';
 import { notifySafely } from '../../../../shared/notificationService.js';
+import { classifyOrderError } from '../services/orderErrorPolicy.js';
+import { notifyRejectReasons } from '../services/strategyNotificationService.js';
 
 const args = parseArgs();
 const symbol = String(args.symbol || process.env.IB_SYMBOL || 'TQQQ').toUpperCase();
 
 try {
-  const result = runTradeJob({ symbol, args });
+  const result = await runTradeJob({ symbol, args });
 
   printPlan(result.plan);
   console.log(result.message);
@@ -24,18 +26,28 @@ try {
       buyOrders: result.plan.buyOrders.length,
       sellOrders: result.plan.sellOrders.length,
       submittedOrders: result.submittedOrders.length,
+      skippedDuplicates: result.skippedDuplicates?.length || 0,
       noTouch: result.plan.noTouch,
       warnings: result.plan.warnings
     }
   });
+  await notifyRejectReasons({ symbol, plan: result.plan });
 } catch (error) {
+  const classification = error.classification || classifyOrderError(error);
   await notifySafely({
-    type: 'TRADE_JOB_FAILED',
+    type: classification.alertType || 'TRADE_JOB_FAILED',
     title: 'Infinite buying trade job failed',
-    severity: 'ERROR',
+    severity: classification.severity || 'ERROR',
     strategy: 'infinite_buying',
     symbol,
-    message: error.message
+    message: error.message,
+    details: {
+      errorCode: classification.code,
+      errorLabel: classification.label,
+      retryable: classification.retryable,
+      attempt: error.attempt,
+      clientOrderId: error.order?.clientOrderId
+    }
   });
   throw error;
 }

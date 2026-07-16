@@ -118,7 +118,7 @@ export function generateOrderPlan(input) {
 
   const canPlanOrders = cutoff.marketOpen !== false && !cutoff.noTouch && input.openOrders?.length === 0;
   if (canPlanOrders) {
-    let orderPolicy = getStateOrderPolicy(nextState);
+    let orderPolicy = adjustOrderPolicyForCurrentState(getStateOrderPolicy(nextState), state);
     if (orderPolicy.buy && risk.buyAllowed && cutoff.canSubmitOrder) {
       const buyPlan = buildBuyOrders({ input, nextState, risk });
       buyOrders.push(...buyPlan.orders);
@@ -128,7 +128,7 @@ export function generateOrderPlan(input) {
         warnings.push(`BUY_REJECT: ${buyPlan.rejectReason.message}`);
       }
     }
-    orderPolicy = getStateOrderPolicy(nextState);
+    orderPolicy = adjustOrderPolicyForCurrentState(getStateOrderPolicy(nextState), state);
     if (
       (orderPolicy.standardSell || orderPolicy.reverseExitSell)
       && risk.sellAllowed
@@ -196,6 +196,17 @@ export function generateOrderPlan(input) {
     manualHaltReason,
     cutoff
   };
+}
+
+function adjustOrderPolicyForCurrentState(nextPolicy, currentState) {
+  if (currentState === StrategyState.BUY_REJECT) {
+    return {
+      ...nextPolicy,
+      buy: false
+    };
+  }
+
+  return nextPolicy;
 }
 
 function buildBuyRejectReasons({ risk, warnings }) {
@@ -673,7 +684,7 @@ function haltPlan({ input, generatedAt, state, starPercent, starPrice, warnings,
     symbol: input.symbol,
     generatedAt,
     state,
-    nextState: StrategyState.MANUAL_HALT,
+    nextState: state === StrategyState.CLOSED ? StrategyState.CLOSED : StrategyState.MANUAL_HALT,
     starPercent,
     starPrice,
     buyOrders: [],

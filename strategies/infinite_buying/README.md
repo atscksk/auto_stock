@@ -2,7 +2,7 @@
 
 무한매수 V4 전략 문서와 PRD를 기반으로 만든 TQQQ 자동매매 MVP입니다.
 
-현재 구현 범위는 전략 계산기, 주문계획 생성, paper 주문 기록, 장마감 후 상태 동기화 골격입니다. 실거래 주문 전송은 기본적으로 막혀 있으며, dry-run/반자동 확인 흐름을 먼저 검증하는 용도입니다.
+현재 구현 범위는 전략 계산기, 주문계획 생성, paper 주문 기록, 제한된 LIVE 주문 전송, 주문 상태 조회, 장마감 후 상태 동기화, 운영 알림입니다. 실거래 주문 전송은 기본적으로 막혀 있으며, paper/반자동 확인 흐름을 먼저 검증하는 용도입니다.
 
 ## 실행 전 준비
 
@@ -18,6 +18,7 @@ npm install
 TRADING_MODE=paper
 ENABLE_AUTO_ORDER=false
 LIVE_CONFIRM=NO
+IB_LIVE_ORDER_AMOUNT_LIMIT=
 
 IB_SYMBOL=TQQQ
 IB_STRATEGY_CAPITAL=10000.00
@@ -37,7 +38,7 @@ TOSS_API_BASE_URL=https://openapi.tossinvest.com
 TOSS_ACCOUNT_SEQ=
 ```
 
-`TRADING_MODE=paper`가 기본값입니다. `LIVE` 실거래 모드는 `ENABLE_AUTO_ORDER=true`와 `LIVE_CONFIRM=YES`가 함께 있어야만 주문 단계로 넘어가도록 막혀 있습니다.
+`TRADING_MODE=paper`가 기본값입니다. `LIVE` 실거래 모드는 `ENABLE_AUTO_ORDER=true`, `LIVE_CONFIRM=YES`, `IB_LIVE_ORDER_AMOUNT_LIMIT`가 함께 있어야만 매수 주문 단계로 넘어가도록 막혀 있습니다.
 
 ## 주문계획 확인
 
@@ -70,6 +71,7 @@ npm run infinite:plan -- --symbol TQQQ --currentPrice 50 --previousClose 51 --av
 ```
 
 주문계획은 `strategies/infinite_buying/logs/order-plans.jsonl`에도 기록됩니다.
+알림이 설정되어 있으면 상태, T, 평단, 주문 후보가 텔레그램/디스코드로 전송됩니다.
 
 ## Paper 주문 기록
 
@@ -87,6 +89,7 @@ strategies/infinite_buying/logs/orders.jsonl
 ```
 
 같은 `clientOrderId`는 중복 저장하지 않습니다.
+같은 실행 안에서 중복 생성된 `clientOrderId`와 기존 저장소에 이미 있는 `clientOrderId`는 모두 건너뜁니다.
 
 ## 장마감 후 동기화
 
@@ -101,6 +104,35 @@ npm run infinite:reconcile -- --symbol TQQQ --averagePrice 49 --holdingQuantity 
 ```text
 strategies/infinite_buying/data/TQQQ.state.json
 ```
+
+LIVE 모드에서는 브로커 주문 ID가 있는 미종료 주문의 상태를 다시 조회하고, 새 체결이 확인되면 체결 알림을 보냅니다. 내부 상태와 브로커 상태가 다르면 `MANUAL_HALT`로 전환됩니다.
+
+## 알림과 요약
+
+무한매수 전략은 아래 알림을 지원합니다.
+
+```text
+주문 계획 알림
+매수거부/매도거부 알림
+체결 확인 알림
+사이클 종료 알림
+일일 요약 알림
+하트비트 알림
+```
+
+일일 요약:
+
+```bash
+npm run infinite:summary -- --symbol TQQQ
+```
+
+하트비트:
+
+```bash
+npm run infinite:health -- --symbol TQQQ
+```
+
+하트비트에는 전략별 마지막 실행 시간이 포함됩니다.
 
 ## 테스트
 
@@ -144,14 +176,13 @@ noTouchMinutesBeforeClose = 15
 
 ## 현재 한계
 
-아래 기능은 파일과 명령 골격만 있으며, 실제 브로커 API 연동 또는 시뮬레이션은 다음 단계에서 확장해야 합니다.
+아래 기능은 아직 추가 검증 또는 다음 단계 보강이 필요합니다.
 
-- 토스 OpenAPI 실시간 조회 연동
-- 실거래 주문 전송
 - 자동 스케줄러
-- 백테스트
-- SOXL 병렬 운용
-- 큰수매수와 리버스모드 전체 자동화
+- LIVE 모드 장기 paper/소액 실거래 검증
+- TQQQ/SOXL 병렬 실운영 검증
+- 실제 브로커 응답 케이스 확대 테스트
+- 출시 전 최종 게이트 문서화
 
 ## 관련 문서
 

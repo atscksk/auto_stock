@@ -3,13 +3,16 @@ import { calculateCurrentRound } from './calculators.js';
 import { decideNormalState, StrategyState } from './stateMachine.js';
 
 export function reconcileState({ state, broker, filledOrders = [] }) {
-  const realizedBuyAmountInCycle = filledOrders
-    .filter((order) => order.side === 'BUY')
+  const filledBuyOrders = filledOrders.filter((order) => order.side === 'BUY');
+  const calculatedRealizedBuyAmountInCycle = filledBuyOrders
     .reduce((sum, order) => sum + Number(order.filledAmount ?? Number(order.price || 0) * Number(order.filledQuantity || order.quantity || 0)), 0)
     .toFixed(2);
+  const realizedBuyAmountInCycle = filledBuyOrders.length > 0
+    ? calculatedRealizedBuyAmountInCycle
+    : String(state.realizedBuyAmountInCycle || '0.00');
 
   const recalculatedRound = calculateCurrentRound(
-    realizedBuyAmountInCycle || state.realizedBuyAmountInCycle || '0.00',
+    realizedBuyAmountInCycle,
     state.unitAmount,
     appConfig.strategy.roundPrecision
   );

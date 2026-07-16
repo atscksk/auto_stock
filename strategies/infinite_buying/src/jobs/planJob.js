@@ -1,6 +1,7 @@
 import { buildRuntimeContext } from '../services/contextService.js';
 import { createPlan } from '../strategy/strategyEngine.js';
 import { recordPlan } from '../storage/orderStore.js';
+import { markStrategyRun } from '../storage/runtimeStore.js';
 
 export function runPlanJob({ symbol, args = {} }) {
   const context = buildRuntimeContext(symbol, args);
@@ -10,5 +11,6 @@ export function runPlanJob({ symbol, args = {} }) {
   plan.currentRound = context.state.currentRound;
 
   recordPlan(plan);
+  markStrategyRun('infinite:plan');
   return plan;
 }

@@ -18,6 +18,7 @@
     "infinite:trade": "node strategies/infinite_buying/src/cli/trade.js",
     "infinite:reconcile": "node strategies/infinite_buying/src/cli/reconcile.js",
     "infinite:health": "node strategies/infinite_buying/src/cli/health.js",
+    "infinite:summary": "node strategies/infinite_buying/src/cli/summary.js",
     "infinite:auto": "node strategies/infinite_buying/src/cli/auto.js",
     "infinite:backtest": "node strategies/infinite_buying/src/cli/backtest.js",
     "infinite:compare": "node strategies/infinite_buying/src/cli/compareBacktests.js",

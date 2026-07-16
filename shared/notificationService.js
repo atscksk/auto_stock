@@ -36,6 +36,18 @@ const titles = {
   HEARTBEAT: '\uC790\uB3D9\uB9E4\uB9E4 \uC11C\uBC84 \uC0DD\uC874 \uD655\uC778',
   TRADE_JOB_COMPLETED: '\uBB34\uD55C\uB9E4\uC218 \uC8FC\uBB38 \uC791\uC5C5 \uC644\uB8CC',
   TRADE_JOB_FAILED: '\uBB34\uD55C\uB9E4\uC218 \uC8FC\uBB38 \uC791\uC5C5 \uC2E4\uD328',
+  INFINITE_PLAN_CREATED: '무한매수 주문 계획',
+  INFINITE_BUY_REJECTED: '무한매수 매수거부',
+  INFINITE_SELL_REJECTED: '무한매수 매도거부',
+  INFINITE_ORDER_FILLED: '무한매수 체결 확인',
+  INFINITE_CYCLE_CLOSED: '무한매수 사이클 종료',
+  INFINITE_DAILY_SUMMARY: '무한매수 일일 요약',
+  ORDER_RATE_LIMIT: '무한매수 주문 API 요청 제한',
+  ORDER_TOKEN_ERROR: '무한매수 주문 토큰 발급 실패',
+  ORDER_IP_RESTRICTED: '무한매수 주문 IP 제한 오류',
+  ORDER_PERMISSION_ERROR: '무한매수 주문 권한 오류',
+  ORDER_IDEMPOTENCY_ERROR: '무한매수 주문 ID 중복/충돌',
+  ORDER_TEMPORARY_ERROR: '무한매수 주문 일시 오류',
   RECONCILE_SYNCED: '\uBB34\uD55C\uB9E4\uC218 \uC0C1\uD0DC \uB3D9\uAE30\uD654 \uC815\uC0C1',
   RECONCILE_MISMATCH: '\uBB34\uD55C\uB9E4\uC218 \uC0C1\uD0DC \uBD88\uC77C\uCE58 \uAC10\uC9C0',
   RECONCILE_JOB_FAILED: '\uBB34\uD55C\uB9E4\uC218 \uC0C1\uD0DC \uB3D9\uAE30\uD654 \uC2E4\uD328',
@@ -220,6 +232,14 @@ function formatDetailLines(details) {
     details.buyOrders != null ? `${ko.buyOrders}: ${details.buyOrders}` : null,
     details.sellOrders != null ? `${ko.sellOrders}: ${details.sellOrders}` : null,
     details.submittedOrders != null ? `${ko.submittedOrders}: ${details.submittedOrders}` : null,
+    details.currentRound != null ? `T: ${details.currentRound}` : null,
+    details.averagePrice != null ? `평단: ${details.averagePrice}` : null,
+    details.holdingQuantity != null ? `보유수량: ${details.holdingQuantity}` : null,
+    details.expectedCashUsage != null ? `예상 현금사용: ${details.expectedCashUsage}` : null,
+    details.buyOrderSummary ? `매수 주문: ${details.buyOrderSummary}` : null,
+    details.sellOrderSummary ? `매도 주문: ${details.sellOrderSummary}` : null,
+    details.filledOrderSummary ? `체결: ${details.filledOrderSummary}` : null,
+    details.lastRuns ? `마지막 실행: ${formatLastRuns(details.lastRuns)}` : null,
     details.noTouch != null ? `NO_TOUCH: ${details.noTouch ? ko.yes : ko.no}` : null,
     details.recalculatedRound != null ? `${ko.recalculatedRound}: ${details.recalculatedRound}` : null,
     details.clientOrderId ? `${ko.clientOrderId}: ${details.clientOrderId}` : null,
@@ -243,6 +263,14 @@ function formatDetailLines(details) {
     'buyOrders',
     'sellOrders',
     'submittedOrders',
+    'currentRound',
+    'averagePrice',
+    'holdingQuantity',
+    'expectedCashUsage',
+    'buyOrderSummary',
+    'sellOrderSummary',
+    'filledOrderSummary',
+    'lastRuns',
     'noTouch',
     'warnings',
     'recalculatedRound',
@@ -286,6 +314,12 @@ function formatDuration(seconds) {
   if (hours > 0) return `${hours}\uC2DC\uAC04 ${minutes}\uBD84 ${secs}\uCD08`;
   if (minutes > 0) return `${minutes}\uBD84 ${secs}\uCD08`;
   return `${secs}\uCD08`;
+}
+
+function formatLastRuns(lastRuns) {
+  return Object.entries(lastRuns || {})
+    .map(([name, timestamp]) => `${name}=${formatKstTime(timestamp)}`)
+    .join(' | ');
 }
 
 function formatKstTime(timestamp) {
