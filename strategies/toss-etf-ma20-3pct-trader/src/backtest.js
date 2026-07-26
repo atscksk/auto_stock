@@ -7,7 +7,8 @@ import {
 } from '../../../shared/historicalData.js';
 
 export function runMa20Backtest(options) {
-  const candles = filterCandlesByDate(loadDailyCandlesFromCsv(options.file), options);
+  const allCandles = loadDailyCandlesFromCsv(options.file);
+  const candles = filterCandlesByDate(allCandles, options);
   const maWindow = Number(options.maWindow || 20);
   const buyThreshold = Number(options.buyThreshold || 1.03);
   const sellThreshold = Number(options.sellThreshold || 0.97);
@@ -21,9 +22,11 @@ export function runMa20Backtest(options) {
   const trades = [];
   const equityCurve = [];
 
-  for (let index = 0; index < candles.length; index += 1) {
-    const history = candles.slice(0, index + 1);
-    const candle = candles[index];
+  for (let index = 0; index < allCandles.length; index += 1) {
+    const history = allCandles.slice(0, index + 1);
+    const candle = allCandles[index];
+    if (!isInBacktestRange(candle, options)) continue;
+
     const signal = ma20Strategy(history, { maWindow, buyThreshold, sellThreshold });
     const close = Number(candle.close);
 
@@ -99,4 +102,10 @@ export function printMa20Backtest(result) {
 
 function roundMoney(value) {
   return Number(Number(value).toFixed(2));
+}
+
+function isInBacktestRange(candle, { from, to } = {}) {
+  if (from && candle.date < from) return false;
+  if (to && candle.date > to) return false;
+  return true;
 }

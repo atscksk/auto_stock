@@ -5,7 +5,7 @@ import { notifyPlanSummary, notifyRejectReasons } from '../services/strategyNoti
 
 const args = parseArgs();
 const symbol = String(args.symbol || process.env.IB_SYMBOL || 'TQQQ').toUpperCase();
-const plan = runPlanJob({ symbol, args });
+const plan = await runPlanJob({ symbol, args });
 printPlan(plan);
 await notifyPlanSummary({ symbol, plan });
 await notifyRejectReasons({ symbol, plan });

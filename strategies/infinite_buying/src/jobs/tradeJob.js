@@ -6,7 +6,7 @@ import { markStrategyRun } from '../storage/runtimeStore.js';
 import { runPlanJob } from './planJob.js';
 
 export async function runTradeJob({ symbol, args = {} }) {
-  const plan = runPlanJob({ symbol, args });
+  const plan = await runPlanJob({ symbol, args });
   const { orders: plannedOrders, skippedDuplicates } = selectNewUniqueOrders([
     ...plan.buyOrders,
     ...plan.sellOrders

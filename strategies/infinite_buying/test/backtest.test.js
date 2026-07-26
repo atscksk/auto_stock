@@ -63,6 +63,30 @@ test('runs ma20 backtest from csv', () => {
   assert.ok(result.equityCurve.length > 0);
 });
 
+test('uses pre-from candles as ma20 warmup data', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-stock-ma20-'));
+  const file = path.join(tempDir, 'ma20-warmup.csv');
+  const candles = [
+    ...makeCandles({ count: 19, startClose: 100, finalClose: 100 }),
+    { date: '2026-06-16', open: 104, high: 104, low: 104, close: 104, volume: 1000 }
+  ];
+  fs.writeFileSync(file, formatCandlesCsv(candles), 'utf8');
+
+  const result = runMa20Backtest({
+    file,
+    symbol: '069500',
+    from: '2026-06-16',
+    cash: 10000,
+    orderBudget: 1000,
+    maWindow: 20,
+    buyThreshold: 1.03,
+    sellThreshold: 0.97
+  });
+
+  assert.equal(result.metrics.buyCount, 1);
+  assert.equal(result.trades[0].date, '2026-06-16');
+});
+
 test('tracks infinite buying cycle summaries', () => {
   const result = runInfiniteBuyingBacktest({
     file: cycleFixture,
