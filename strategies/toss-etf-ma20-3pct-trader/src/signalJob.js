@@ -6,11 +6,11 @@ import { decideOrderCandidate } from '../../../shared/risk.js';
 import { buildPortfolioSnapshot, getFirstAccountSeq, logger, tossClient } from './runtime.js';
 import { nextWeekdayKstCompact, todayKstCompact } from './dates.js';
 import { readJsonLines } from './jsonl.js';
+import { calculatePaperPosition } from './paperPosition.js';
 
 export async function runSignalJob() {
   logger.ensureLogFiles();
 
-  const accountSeq = await getFirstAccountSeq();
   const candles = await tossClient.getDailyCandles(config.symbol, 40);
   if (candles.length < config.minCandles) {
     throw new Error(`Not enough candles. required=${config.minCandles}, actual=${candles.length}`);
@@ -22,9 +22,13 @@ export async function runSignalJob() {
     sellThreshold: config.sellThreshold
   });
 
-  const holdings = await tossClient.getHoldings(accountSeq, config.symbol);
+  const accountSeq = config.mode === 'DRY_RUN' ? null : await getFirstAccountSeq();
+  const holdings = config.mode === 'DRY_RUN' ? null : await tossClient.getHoldings(accountSeq, config.symbol);
   const holding = (holdings?.items || []).find((item) => item.symbol === config.symbol);
-  const holdingQuantity = Number(holding?.quantity || 0);
+  const paperPosition = config.mode === 'DRY_RUN'
+    ? calculatePaperPosition(readJsonLines(logger.logFiles.orders), config.symbol)
+    : null;
+  const holdingQuantity = paperPosition ? paperPosition.quantity : Number(holding?.quantity || 0);
   const hasPosition = Number.isFinite(holdingQuantity) && holdingQuantity > 0;
 
   logger.logPortfolio(buildPortfolioSnapshot({
@@ -34,7 +38,9 @@ export async function runSignalJob() {
     holdings,
     holding,
     hasPosition,
-    holdingQuantity
+    holdingQuantity,
+    averagePurchasePrice: paperPosition?.averagePrice,
+    source: paperPosition ? 'PAPER' : 'BROKER'
   }));
 
   logger.logSignal({

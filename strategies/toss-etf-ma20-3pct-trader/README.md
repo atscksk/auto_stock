@@ -41,6 +41,7 @@ npm run ma20:dry-run:signal
 ```
 
 처음에는 `MODE=DRY_RUN` 상태로 실행하세요. signal job은 실제 주문 API를 호출하지 않고, 신호와 주문 계획만 로그에 저장합니다.
+DRY_RUN에서는 `orders.jsonl`의 paper 주문 기록을 기준으로 보유수량과 평단을 재계산합니다. 모의매수 후에는 실제 계좌 보유수량이 0이어도 다음 signal/order 판단에서 paper 포지션을 사용합니다.
 
 DRY_RUN에서 실제 계좌의 매수 가능 금액과 상관없이 테스트하고 싶다면 `DRY_RUN_BUYING_POWER_KRW`를 설정하세요. 예를 들어 `DRY_RUN_BUYING_POWER_KRW=1000000`이면 risk check에서 매수 가능 금액을 100만 원으로 가정합니다. 이 값은 `MODE=LIVE`에서는 사용되지 않습니다.
 
@@ -121,6 +122,8 @@ order job이 DRY_RUN 주문 계획을 실행하면:
 DRY_RUN planned paper order saved: ma20-069500-20260619-BUY
 ```
 
+이후 DRY_RUN signal/order job은 `logs/orders.jsonl`을 읽어 paper 보유수량과 평단을 계산합니다.
+
 같은 날짜, 같은 종목, 같은 방향의 주문이 이미 있으면:
 
 ```text
@@ -149,7 +152,7 @@ strategies/toss-etf-ma20-3pct-trader/logs/errors.jsonl
 
 - `signals.jsonl`: MA20, 종가, 매수선, 매도선, 최종 신호
 - `order-plans.jsonl`: signal job이 저장한 다음 거래일 주문 계획
-- `orders.jsonl`: DRY_RUN 가상 주문 또는 LIVE 실제 주문 결과
+- `orders.jsonl`: DRY_RUN 가상 주문 또는 LIVE 실제 주문 결과. DRY_RUN paper 포지션 계산의 기준 파일입니다.
 - `portfolio.jsonl`: 보유 수량, 평가금액, 매입금액, 평가손익, 수익률
 - `errors.jsonl`: 설정 오류, API 오류, 주문 차단 오류
 

@@ -24,15 +24,26 @@ export async function getFirstAccountSeq() {
   return accountSeq;
 }
 
-export function buildPortfolioSnapshot({ mode, symbol, accountSeq, holdings, holding, hasPosition, holdingQuantity }) {
+export function buildPortfolioSnapshot({
+  mode,
+  symbol,
+  accountSeq,
+  holdings,
+  holding,
+  hasPosition,
+  holdingQuantity,
+  averagePurchasePrice,
+  source = 'BROKER'
+}) {
   return {
     mode,
     symbol,
     accountSeq,
+    source,
     hasPosition,
-    quantity: String(holding?.quantity ?? holdingQuantity ?? 0),
+    quantity: String(holdingQuantity ?? holding?.quantity ?? 0),
     lastPrice: holding?.lastPrice ?? null,
-    averagePurchasePrice: holding?.averagePurchasePrice ?? null,
+    averagePurchasePrice: averagePurchasePrice ?? holding?.averagePurchasePrice ?? null,
     marketValue: holding?.marketValue?.amount ?? null,
     purchaseAmount: holding?.marketValue?.purchaseAmount ?? null,
     profitLossAmount: holding?.profitLoss?.amount ?? null,

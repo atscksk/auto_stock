@@ -22,7 +22,7 @@
     "infinite:auto": "node strategies/infinite_buying/src/cli/auto.js",
     "infinite:backtest": "node strategies/infinite_buying/src/cli/backtest.js",
     "infinite:compare": "node strategies/infinite_buying/src/cli/compareBacktests.js",
-    "test": "node --test strategies/infinite_buying/test/*.test.js"
+    "test": "node --test strategies/infinite_buying/test/*.test.js strategies/toss-etf-ma20-3pct-trader/test/*.test.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7"

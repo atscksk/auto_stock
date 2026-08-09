@@ -5,6 +5,7 @@ import { assertLiveOrderAllowed, decideOrderCandidate } from '../../../shared/ri
 import { getFirstAccountSeq, logger, paperBroker, tossClient } from './runtime.js';
 import { todayKstCompact } from './dates.js';
 import { readJsonLines } from './jsonl.js';
+import { calculatePaperPosition } from './paperPosition.js';
 
 export async function runOrderJob() {
   logger.ensureLogFiles();
@@ -36,22 +37,28 @@ export async function runOrderJob() {
     return;
   }
 
-  const accountSeq = await getFirstAccountSeq();
-  const holdings = await tossClient.getHoldings(accountSeq, plan.symbol);
+  const paperPosition = config.mode === 'DRY_RUN'
+    ? calculatePaperPosition(readJsonLines(logger.logFiles.orders), plan.symbol)
+    : null;
+  const accountSeq = config.mode === 'DRY_RUN' ? null : await getFirstAccountSeq();
+  const holdings = config.mode === 'DRY_RUN' ? null : await tossClient.getHoldings(accountSeq, plan.symbol);
   const holding = (holdings?.items || []).find((item) => item.symbol === plan.symbol);
-  const holdingQuantity = Number(holding?.quantity || 0);
+  const holdingQuantity = paperPosition ? paperPosition.quantity : Number(holding?.quantity || 0);
   const hasPosition = Number.isFinite(holdingQuantity) && holdingQuantity > 0;
 
   let quantity = Number(plan.quantity);
   let buyingPower = null;
   if (plan.side === 'BUY') {
-    buyingPower = await tossClient.getBuyingPower(accountSeq);
     if (config.mode === 'DRY_RUN' && config.dryRunBuyingPowerKrw != null) {
       buyingPower = config.dryRunBuyingPowerKrw;
+    } else if (config.mode !== 'DRY_RUN') {
+      buyingPower = await tossClient.getBuyingPower(accountSeq);
     }
   }
   if (plan.side === 'SELL') {
-    const sellableQuantity = await tossClient.getSellableQuantity(accountSeq, plan.symbol);
+    const sellableQuantity = config.mode === 'DRY_RUN'
+      ? paperPosition.quantity
+      : await tossClient.getSellableQuantity(accountSeq, plan.symbol);
     if (Number.isFinite(sellableQuantity)) {
       quantity = Math.min(quantity, Math.floor(sellableQuantity));
     }
