@@ -1,6 +1,6 @@
 # toss-etf-ma20-3pct-trader
 
-토스증권 OpenAPI를 사용해 국내 ETF 1종목에 대해 하루 1회 `ETF 20일 이동평균 + 3% 여유 전략`을 실행하는 Node.js 20+ ES Module CLI 스크립트입니다.
+토스증권 OpenAPI를 사용해 국내 ETF 1종목에 대해 하루 1회 `ETF 20일 이동평균 돌파/이탈 전략`을 실행하는 Node.js 20+ ES Module CLI 스크립트입니다.
 
 기본 종목은 `069500`, 기본 실행 모드는 `DRY_RUN`입니다.
 
@@ -234,9 +234,11 @@ GET /api/v1/candles?symbol=069500&interval=1d&count=40&adjusted=true
 
 캔들은 `timestamp` 기준 오름차순으로 정렬합니다. 최근 20개 `closePrice`의 평균을 MA20으로 계산합니다.
 
-- `close >= MA20 * 1.03`: `BUY`
+- `close >= MA20 * BUY_THRESHOLD`: `BUY`
 - `close <= MA20 * 0.97`: `SELL`
 - 그 외: `HOLD`
+
+기본값은 `BUY_THRESHOLD=1.00`, `SELL_THRESHOLD=0.97`입니다. 더 보수적인 기존 +3% 진입 기준을 쓰려면 `.env`에 `BUY_THRESHOLD=1.03`을 설정하세요.
 
 매수 수량은 `floor(ORDER_BUDGET_KRW / price)`로 계산합니다. 국내 ETF는 quantity 기반 주문만 사용하며 `orderAmount`는 사용하지 않습니다.
 

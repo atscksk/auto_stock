@@ -71,7 +71,7 @@ export const config = {
   priceSlippageRate: numberEnv('PRICE_SLIPPAGE_RATE', 0.001),
   minCandles,
   maWindow,
-  buyThreshold: positiveNumberEnv('BUY_THRESHOLD', 1.03),
+  buyThreshold: positiveNumberEnv('BUY_THRESHOLD', 1.00),
   sellThreshold: positiveNumberEnv('SELL_THRESHOLD', 0.97),
   dryRunBuyingPowerKrw: optionalPositiveNumberEnv('DRY_RUN_BUYING_POWER_KRW'),
   logLevel: process.env.LOG_LEVEL || 'info',

@@ -72,7 +72,7 @@ npm run ma20:backtest -- --file data/069500-2026-H1.csv --symbol 069500 --cash 1
 파라미터를 직접 조정할 수도 있다.
 
 ```bash
-npm run ma20:backtest -- --file data/069500-2026-H1.csv --symbol 069500 --cash 10000000 --orderBudget 1000000 --maWindow 20 --buyThreshold 1.03 --sellThreshold 0.97
+npm run ma20:backtest -- --file data/069500-2026-H1.csv --symbol 069500 --cash 10000000 --orderBudget 1000000 --maWindow 20 --buyThreshold 1.00 --sellThreshold 0.97
 ```
 
 주요 옵션:
@@ -83,7 +83,7 @@ npm run ma20:backtest -- --file data/069500-2026-H1.csv --symbol 069500 --cash 1
 --cash            초기 계좌 평가금
 --orderBudget     1회 매수에 사용할 금액
 --maWindow        이동평균 기간, 기본 20
---buyThreshold    매수 기준, 기본 1.03
+--buyThreshold    매수 기준, 기본 1.00
 --sellThreshold   매도 기준, 기본 0.97
 --from            백테스트 시작일
 --to              백테스트 종료일

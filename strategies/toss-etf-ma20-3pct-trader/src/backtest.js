@@ -10,7 +10,7 @@ export function runMa20Backtest(options) {
   const allCandles = loadDailyCandlesFromCsv(options.file);
   const candles = filterCandlesByDate(allCandles, options);
   const maWindow = Number(options.maWindow || 20);
-  const buyThreshold = Number(options.buyThreshold || 1.03);
+  const buyThreshold = Number(options.buyThreshold || 1.00);
   const sellThreshold = Number(options.sellThreshold || 0.97);
   const orderBudget = Number(options.orderBudget || 300000);
   const initialCash = Number(options.cash || 10000000);
